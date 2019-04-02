@@ -14,6 +14,8 @@
 
       module CICE_RunMod
 
+      use CICE_OASISMCT
+      
       use ice_kinds_mod
       use ice_fileunits, only: nu_diag
       use ice_arrays_column, only: oceanmixed_ice
@@ -72,8 +74,9 @@
    !--------------------------------------------------------------------
 
       timeLoop: do
-#endif
-
+#endif   
+         call ice_oasismct_coupling(nint((istep-1)*dt))
+         
          call ice_step
 
          istep  = istep  + 1    ! update time step counters
@@ -105,7 +108,7 @@
 
          call init_flux_atm  ! Initialize atmosphere fluxes sent to coupler
          call init_flux_ocn  ! initialize ocean fluxes sent to coupler
-
+         
          call ice_timer_stop(timer_couple)    ! atm/ocn coupling
 
 #ifndef CICE_IN_NEMO

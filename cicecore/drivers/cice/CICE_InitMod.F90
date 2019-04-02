@@ -12,6 +12,8 @@
 
       module CICE_InitMod
 
+      use CICE_OASISMCT, only: init_oasis_ice
+      
       use ice_kinds_mod
       use ice_exit, only: abort_ice
       use ice_fileunits, only: init_fileunits, nu_diag
@@ -185,6 +187,8 @@
    ! coupler communication or forcing data initialization
    !--------------------------------------------------------------------
 
+      call init_oasis_ice !OASIS-MCT initialization ----------------------
+      
       call init_forcing_atmo    ! initialize atmospheric forcing (standalone)
 
 #ifndef coupled
@@ -427,7 +431,7 @@
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
 
-      end subroutine init_restart
+      end subroutine init_restart      
 
 !=======================================================================
 

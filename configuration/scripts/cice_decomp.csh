@@ -55,6 +55,15 @@ else if (${grid} == 'gbox80') then
     set blckx = 8; set blcky = 8
   endif
 
+else if (${grid} == 'gbarents') then
+  set nxglob = 739
+  set nyglob = 949
+  if (${cicepes} <= 1) then
+    set blckx = 739; set blcky = 949
+  else
+    set blckx = 20; set blcky = 20
+  endif
+
 else if (${grid} == 'gx3') then
   set nxglob = 100
   set nyglob = 116

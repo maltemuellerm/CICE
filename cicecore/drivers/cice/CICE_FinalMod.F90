@@ -10,6 +10,8 @@
 
       module CICE_FinalMod
 
+      use CICE_OASISMCT, only: finalize_oasismct_coupling
+      
       use ice_kinds_mod
       use ice_communicate, only: my_task, master_task
       use ice_exit, only: end_run, abort_ice
@@ -39,6 +41,8 @@
    ! stop timers and print timer info
    !-------------------------------------------------------------------
 
+      call finalize_oasismct_coupling
+      
       call ice_timer_stop(timer_total)        ! stop timing entire run
       call ice_timer_print_all(stats=.false.) ! print timing information
 

@@ -1,0 +1,15 @@
+dt = 120.0
+runtype='initial'
+restart        = .true.
+restart_ext    = .false.
+use_restart_time = .false.
+restart_format = 'nc'
+lcdf64         = .true.
+ice_ic  = 'ICE_MACHINE_INPUTDATA/CICE_data/grid/barents/cice_combine_2017-10-01.nc'
+maskhalo_dyn   = .true.
+maskhalo_remap = .true.
+maskhalo_bound = .true.
+ew_boundary_type  = 'open'
+ns_boundary_type  = 'open'
+highfreq = .true.
+atm_data_type  = 'box2001'

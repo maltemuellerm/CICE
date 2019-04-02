@@ -4752,11 +4752,12 @@
 
 ! wind and current fields as in Hunke, JCP 2001
 ! authors: Elizabeth Hunke, LANL
+!Nick: modified to add Tair
 
       use ice_domain, only: nblocks
       use ice_constants, only: c0, c1, c2, c3, c4, c5, p2
       use ice_blocks, only: nx_block, ny_block, nghost
-      use ice_flux, only: uocn, vocn, uatm, vatm, wind, rhoa, strax, stray
+      use ice_flux, only: uocn, vocn, uatm, vatm, wind, rhoa, strax, stray, Tair
       use ice_fileunits, only: nu_diag, nu_forcing
       use ice_grid, only: uvm
 
@@ -4802,6 +4803,8 @@
          tau = rhoa(i,j,iblk) * 0.0012_dbl_kind * wind(i,j,iblk)
          strax(i,j,iblk) = tau * uatm(i,j,iblk)
          stray(i,j,iblk) = tau * vatm(i,j,iblk)
+
+	 !Tair(i,j,iblk) = 250.0
 
 ! initialization test
        ! Diagonal wind vectors 1

@@ -1,0 +1,8 @@
+grid_type   = 'rectangular'
+grid_format = 'nc'
+grid_file   = 'ICE_MACHINE_INPUTDATA/CICE_data/grid/barents/cice.grid.nc'
+kmt_file    = 'ICE_MACHINE_INPUTDATA/CICE_data/grid/barents/cice.kmt.nc'
+bathymetry_file = 'ICE_MACHINE_INPUTDATA/CICE_data/grid/barents/barents_bath.nc'
+dxrect         = 2.5e5
+dyrect         = 2.5e5
+

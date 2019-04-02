@@ -159,6 +159,14 @@ cat >> ${jobfile} << EOFB
 # nothing to do
 EOFB
 
+else if (${ICE_MACHINE} =~ nebula*) then
+cat >> ${jobfile} << EOFB
+#SBATCH -J ${ICE_CASENAME}
+#SBATCH -t ${batchtime}
+####SBATCH -N ${nnodes}
+#SBATCH -n ${ncores}
+EOFB
+
 else
   echo "${0} ERROR: ${ICE_MACHINE} unknown"
   exit -1

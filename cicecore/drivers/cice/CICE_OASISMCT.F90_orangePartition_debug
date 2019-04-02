@@ -1,0 +1,304 @@
+
+module CICE_OASISMCT
+
+  use mod_oasis
+  
+  use ice_kinds_mod
+  use ice_exit, only: abort_ice
+  use ice_fileunits, only: nu_diag
+  use icepack_intfc, only: icepack_query_parameters
+
+  use ice_blocks, only : block, get_block, nx_block, ny_block
+  use ice_domain, only : nblocks, blocks_ice
+  use ice_domain_size, only : nx_global, ny_global, max_blocks
+  use ice_grid, only: TLAT, TLON, hm
+
+  use ice_state, only: aice
+  
+  implicit none
+  save
+
+  private
+  logical :: initial_call
+  integer :: comp_id, localComm
+  integer :: lsize !number of physical points on proc
+  
+  CHARACTER(len=*), parameter  :: oas_comp_name = 'CICE'
+  CHARACTER(len=*), parameter  :: grid_name = 'gbar' ! Name of grid
+  
+  integer :: part_id !partition ID
+  CHARACTER(len=*), parameter  :: var_name1 = 'ICEOUT' ! Names of exchanged Fields
+  integer :: var_id ! Coupling field ID
+  
+  public :: init_oasis_ice, &
+            ice_oasismct_coupling, &
+            finalize_oasismct_coupling
+  
+  !character (len=240) :: &
+  !importList = 'SST:SSS:FRZMLT:u:v:SSH', &
+  !exportList = 'AICE:freshAI:fsaltAI:fhocnAI:fswthruAI:strocnx:strocny'
+
+  contains
+      subroutine init_oasis_ice
+        !OASIS-MCT initialization and partition+grid definitions. NS, 2019
+        
+        implicit none
+        
+        INTEGER :: oas_ierror
+        
+        INTEGER:: il_paral_size !depends on partition type: apple=3, box=5,...
+        INTEGER, DIMENSION(:), ALLOCATABLE :: il_paral ! Decomposition of domain for each proc
+        
+        integer     :: ilo_glob, j_glob
+        integer     :: i, j, iblk, n, gi, iLat,iLon
+        integer     :: ier
+        integer     :: ilo, ihi, jlo, jhi ! beginning and end of physical domain
+        type(block) :: this_block         ! block information for current block
+        integer, dimension(:), allocatable :: start, length
+        
+        real(dbl_kind) :: rad_to_deg
+        real(dbl_kind), dimension(:,:), allocatable :: data_lat, data_lon
+        integer, dimension(:,:), allocatable :: data_int
+        
+        !fields are of rank = 2
+        integer ::  var_nodims(2), var_type, var_actual_shape(4)
+        
+        character(len=*), parameter :: subname = '(init_oasis_ice)'
+        
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+        ! OASIS_INIT and OASIS_GET_LOCALCOMM
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+        
+        call oasis_init_comp(comp_id, oas_comp_name, oas_ierror)
+        IF (oas_ierror /= 0) THEN
+          WRITE(nu_diag,*) 'oasis_init_comp abort. compid ',comp_id
+          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_init_comp')
+        ENDIF
+        
+        call oasis_get_localcomm(localComm, oas_ierror)
+        IF (oas_ierror /= 0) THEN
+          WRITE(nu_diag,*) 'oasis_get_localcomm abort. compid ',comp_id
+          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_get_localcomm')
+        ENDIF
+        WRITE(nu_diag,*) 'I am the ', TRIM(oas_comp_name), ' comp', comp_id, 'in local comm', localComm
+        
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+        ! Definition of the partition of the grid (calling oasis_def_partition)
+        ! IN CICE, the global gridded domain is nx_global × ny_global, subdivided into blocks of nx_block × ny_block.
+        ! A proc can have multiple blocks. Each block is indexed in global space as [ilo:ihi, jlo:jhi].
+        ! oasis_write_grid doesn't allow haloes (i.e., overlap)
+        !
+        ! Since oas_def_partition doesn't allow for each proc to have multiple rectangular patches, we'll make
+        ! an "Orange" partition with horizontal strips (horizontal since first array axis is contiguous in fortran).
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+         
+        !The following adapts ./drivers/cice/CICE_MCT.F90 in ROMSCOUPLED METROMS CICE from jd
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)
+          !ilo = this_block%ilo
+          !ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          n = n + (1+jhi-jlo)
+        enddo
+        lsize = n !number of segments
+        allocate(start(lsize))
+        allocate(length(lsize))
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          do j = jlo, jhi
+              n = n+1
+              iLon = this_block%i_glob(ilo)
+              iLat = this_block%j_glob(j)
+              gi = (iLat-1)*nx_global + iLon
+              start(n) = gi !TODO 0- or 1-based indexing (??)
+              length(n) = 1+ihi-ilo
+          enddo
+        enddo
+        
+        il_paral_size = 2+2*lsize !2+2*numberOfSegments
+        ALLOCATE(il_paral(il_paral_size))
+        il_paral(1)=3 !for Orange partition
+        il_paral(2) = lsize !total number of segments (TODO: does this have to be .lt. 200??)
+        do n = 1,lsize
+          il_paral(2+1+2*(n-1)) = start(n) ! nth segment global offset
+          il_paral(2+1+2*(n-1)+1) = length(n) ! nth segment local extent
+        end do
+        
+        WRITE(nu_diag,*) 'In points partition, proc covers: ', start(1), start(lsize)+length(lsize)-1, sum(length), minval(length), maxval(length), nx_global,ny_global
+        CALL oasis_def_partition (part_id, il_paral, oas_ierror) !TODO: error check
+        
+        lsize = sum(length) !number of physical points on proc
+        
+        deallocate(start,length)
+        deallocate(il_paral)
+        
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        !  GRID DEFINITION
+        !
+        ! Following ./drivers/cesm/ice_comp_mct.F90:ice_domain_mct(), we need to 
+        ! generate single data arrays aggregating the grid information:
+        !   required: lat,lon,mask
+        !   optional (required for conservative remapping): corner, area
+        ! for each processor scattered among its owned blocks.
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        call oasis_start_grids_writing(oas_ierror) !flag out always 1
+        
+        call icepack_query_parameters(rad_to_deg_out=rad_to_deg)
+        
+        allocate(data_lat(lsize,1))
+        allocate(data_lon(lsize,1))
+        allocate(data_int(lsize,1))
+        
+        data_lon(:,:) = -9999.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              data_lon(n,1) = TLON(i,j,iblk)*rad_to_deg
+              !Longitudes must begiven in degrees East in the interval -360.0 to 720.0.
+              if (data_lon(n,1) .GT. 180) then
+                data_lon(n,1) = data_lon(n,1) - 360
+              endif
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        data_lat(:,:) = -9999.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              data_lat(n,1) = TLAT(i,j,iblk)*rad_to_deg
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        ! ny_global=0 if  the  grid is expressed as a 1D vector
+        call oasis_write_grid(grid_name, nx_global*ny_global,1, data_lon, data_lat, part_id)
+        
+        data_int(:,:) = 0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              !A land mask hm is specified in the cell centers, with 0 representing land and 1 representing ocean cells.
+              data_int(n,1) = nint(hm(i,j,iblk))
+              data_int(n,1) = 1-data_int(n,1) ! OASIS historical convention: 0 = not masked, 1 = masked
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        call oasis_write_mask(grid_name, nx_global*ny_global,1, data_int, part_id)
+        
+        deallocate(data_lat,data_lon)
+        deallocate(data_int)
+        
+        call oasis_terminate_grids_writing()
+        
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        !  Coupling field declaration. Variable DEFINITION
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        var_type = OASIS_Real
+        var_nodims(2) = 1 !varnodims(1) is not used. varnodims(2) is the number of fields in a bundle (1 for unbundled)
+        call oasis_def_var(var_id,var_name1,part_id, var_nodims, OASIS_Out,var_actual_shape,var_type,oas_ierror)
+        IF (oas_ierror /= 0) THEN
+          WRITE(nu_diag,*) 'oasis_def_var abort. compid ',comp_id
+          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_def_var')
+        ENDIF
+        
+        !End OASIS-MCT initialization ----------------------
+        call oasis_enddef(oas_ierror)
+        IF (oas_ierror /= 0) THEN
+          WRITE(nu_diag,*) 'oasis_enddef abort. compid ',comp_id
+          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_enddef')
+        ENDIF
+      
+      end subroutine init_oasis_ice
+      
+      subroutine ice_oasismct_coupling (timeCouple)
+        implicit none
+        
+        integer, intent(in) :: timeCouple !time of the call (by convention at the beginning of the timestep)
+        
+        integer :: oas_ierror
+        integer     :: i, j, iblk, n, gi
+        integer     :: ilo, ihi, jlo, jhi ! beginning and end of physical domain
+        type(block) :: this_block         ! block information for current block
+        
+        real(dbl_kind), dimension(:,:), allocatable :: wrk_horiz
+        
+        allocate(wrk_horiz(lsize,1))
+        
+        !nonblocking sends -----------
+        wrk_horiz(:,:) = 0.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              wrk_horiz(n,1) = aice(i,j,iblk)
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        !WRITE (nu_diag,*) 'oasis_put by ',comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        CALL oasis_put(var_id,timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+        ENDIF
+        
+        !blocking receives -----------
+        
+        deallocate(wrk_horiz)
+      
+      end subroutine ice_oasismct_coupling
+      
+      subroutine finalize_oasismct_coupling
+        implicit none
+        
+        integer ::  oas_ierror
+        
+        call oasis_terminate(oas_ierror)
+        IF (oas_ierror /= 0) THEN
+          WRITE (nu_diag,*) 'oasis_terminate abort '
+          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_terminate')
+        ENDIF
+      
+      end subroutine finalize_oasismct_coupling
+
+end module CICE_OASISMCT
