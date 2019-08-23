@@ -12,7 +12,7 @@
 
       module CICE_InitMod
 
-      use CICE_OASISMCT, only: init_oasis_ice
+      use CICE_OASISMCT, only: init_oasis_ice1, init_oasis_ice2, localComm
       
       use ice_kinds_mod
       use ice_exit, only: abort_ice
@@ -93,8 +93,11 @@
       logical(kind=log_kind) :: tr_aero, tr_zaero, skl_bgc, z_tracers
       character(len=*), parameter :: subname = '(cice_init)'
 
-      call init_communicate     ! initial setup for message passing
+      call init_oasis_ice1
+      call init_communicate(localComm)     ! initial setup for message passing
       call init_fileunits       ! unit numbers
+      !call init_oasis_ice1
+      !call init_communicate(localComm) ! initial setup for message passing
 
       ! tcx debug, this will create a different logfile for each pe
       ! if (my_task /= master_task) nu_diag = 100+my_task
@@ -187,7 +190,7 @@
    ! coupler communication or forcing data initialization
    !--------------------------------------------------------------------
 
-      call init_oasis_ice !OASIS-MCT initialization ----------------------
+      call init_oasis_ice2 !OASIS-MCT initialization ----------------------
       
       call init_forcing_atmo    ! initialize atmospheric forcing (standalone)
 

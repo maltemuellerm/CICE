@@ -165,6 +165,16 @@ cat >> ${jobfile} << EOFB
 #SBATCH -t ${batchtime}
 ####SBATCH -N ${nnodes}
 #SBATCH -n ${ncores}
+
+else if (${ICE_MACHINE} =~ cca*) then
+cat >> ${jobfile} << EOFB
+#PBS -N ${ICE_CASENAME}
+#PBS -q np
+#PBS -l EC_total_tasks=${ncores}
+#PBS -l EC_hyperthreads=2
+#PBS -l walltime=${batchtime}
+#PBS -M nicholass@met.no
+#PBS -m e
 EOFB
 
 else

@@ -4804,7 +4804,7 @@
          strax(i,j,iblk) = tau * uatm(i,j,iblk)
          stray(i,j,iblk) = tau * vatm(i,j,iblk)
 
-	 !Tair(i,j,iblk) = 250.0
+	 Tair(i,j,iblk) = 250.0
 
 ! initialization test
        ! Diagonal wind vectors 1

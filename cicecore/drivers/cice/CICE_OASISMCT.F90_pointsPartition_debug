@@ -22,20 +22,25 @@ module CICE_OASISMCT
 
   private
   logical :: initial_call
-  integer :: comp_id, localComm
+  integer :: comp_id !, localComm
+  integer, public :: localComm
   integer :: lsize !number of physical points on proc
   
   CHARACTER(len=*), parameter  :: oas_comp_name = 'CICE'
   CHARACTER(len=*), parameter  :: grid_name = 'gbar' ! Name of grid
   
   integer :: part_id !partition ID
-  integer, parameter :: nVars_in=3, nVars_out=2
-  CHARACTER(len=20), parameter  :: varsIn_names(nVars_in) =  [character(len=20)::"Tair","uatm","vatm"] , &
-                                   varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"] ! Names of exchanged Fields
+  !integer, parameter :: nVars_in=3, nVars_out=2
+  !CHARACTER(len=20), parameter  :: varsIn_names(nVars_in) =  [character(len=20)::"Tair","uatm","vatm"] , &
+  !                                 varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"] ! Names of exchanged Fields
+  integer, parameter :: nVars_in=0, nVars_out=2
+  CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"]
+  CHARACTER(len=20) :: varsIn_names(nVars_in) ! Names of exchanged Fields
+  
   integer, dimension(nVars_in) :: varsIn_ids ! Coupling field ID
   integer, dimension(nVars_out) :: varsOut_ids ! Coupling field ID
   
-  public :: init_oasis_ice, &
+  public :: init_oasis_ice1, init_oasis_ice2, &
             ice_oasismct_coupling, &
             finalize_oasismct_coupling
   
@@ -44,7 +49,36 @@ module CICE_OASISMCT
   !exportList = 'AICE:freshAI:fsaltAI:fhocnAI:fswthruAI:strocnx:strocny'
 
   contains
-      subroutine init_oasis_ice
+
+      subroutine init_oasis_ice1
+        !OASIS-MCT initialization and partition+grid definitions. NS, 2019
+        
+        implicit none
+        
+        INTEGER :: oas_ierror
+        
+        character(len=*), parameter :: subname = '(init_oasis_ice1)'
+        
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+        ! OASIS_INIT and OASIS_GET_LOCALCOMM
+        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
+        
+        call oasis_init_comp(comp_id, oas_comp_name, oas_ierror)
+        !IF (oas_ierror /= 0) THEN
+        !  WRITE(nu_diag,*) 'oasis_init_comp abort. compid ',comp_id
+        !  CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_init_comp')
+        !ENDIF
+        
+        call oasis_get_localcomm(localComm, oas_ierror)
+        !IF (oas_ierror /= 0) THEN
+        !  WRITE(nu_diag,*) 'oasis_get_localcomm abort. compid ',comp_id
+        !  CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_get_localcomm')
+        !ENDIF
+        !WRITE(nu_diag,*) 'I am the ', TRIM(oas_comp_name), ' comp', comp_id, 'in local comm', localComm
+      
+      end subroutine init_oasis_ice1
+
+      subroutine init_oasis_ice2
         !OASIS-MCT initialization and partition+grid definitions. NS, 2019
         
         implicit none
@@ -68,24 +102,7 @@ module CICE_OASISMCT
         !fields are of rank = 2
         integer ::  var_nodims(2), var_type, var_actual_shape(4)
         
-        character(len=*), parameter :: subname = '(init_oasis_ice)'
-        
-        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
-        ! OASIS_INIT and OASIS_GET_LOCALCOMM
-        !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
-        
-        call oasis_init_comp(comp_id, oas_comp_name, oas_ierror)
-        IF (oas_ierror /= 0) THEN
-          WRITE(nu_diag,*) 'oasis_init_comp abort. compid ',comp_id
-          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_init_comp')
-        ENDIF
-        
-        call oasis_get_localcomm(localComm, oas_ierror)
-        IF (oas_ierror /= 0) THEN
-          WRITE(nu_diag,*) 'oasis_get_localcomm abort. compid ',comp_id
-          CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_get_localcomm')
-        ENDIF
-        WRITE(nu_diag,*) 'I am the ', TRIM(oas_comp_name), ' comp', comp_id, 'in local comm', localComm
+        character(len=*), parameter :: subname = '(init_oasis_ice2)'
         
         !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ !
         ! Definition of the partition of the grid (calling oasis_def_partition)
@@ -262,7 +279,7 @@ module CICE_OASISMCT
           CALL oasis_abort(comp_id, oas_comp_name,'Problem w oasis_enddef')
         ENDIF
       
-      end subroutine init_oasis_ice
+      end subroutine init_oasis_ice2
       
       subroutine ice_oasismct_coupling (timeCouple)
         !Called every timestep
@@ -332,10 +349,11 @@ module CICE_OASISMCT
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
         ENDIF
         if (oas_ierror .EQ. OASIS_Output) THEN
-          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(1)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(2)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
         endif
         
         !blocking receives -----------
+      if (nVars_in .GT. 0) THEN
         CALL oasis_get(varsIn_ids(1), timeCouple, wrk_horiz, oas_ierror)
         IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
@@ -412,7 +430,7 @@ module CICE_OASISMCT
             enddo    !j
           enddo       !iblk
         endif
-        
+      endif !nVars_in  
         deallocate(wrk_horiz)
       
       end subroutine ice_oasismct_coupling

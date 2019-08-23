@@ -86,7 +86,12 @@ EOFR
 else if (${ICE_MACHINE} =~ nebula*) then
 cat >> ${jobfile} << EOFR
 mpprun ./cice >&! \$ICE_RUNLOG_FILE
+#=======
+else if (${ICE_MACHINE} =~ cca*) then
+cat >> ${jobfile} << EOFR
+aprun -n ${ntasks} -d ${nthrds} ./cice >&! \$ICE_RUNLOG_FILE
 EOFR
+#=======
 #cat >> ${jobfile} << EOFR
 #srun -n ${ntasks} -c ${nthrds} ./cice >&! \$ICE_RUNLOG_FILE
 #EOFR
