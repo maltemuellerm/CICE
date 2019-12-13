@@ -164,7 +164,6 @@
       call init_forcing_ocn(dt) ! initialize sss and sst from data
       call init_state           ! initialize the ice state
       call init_transport       ! initialize horizontal transport
-      call ice_HaloRestore_init ! restored boundary conditions
 
       call icepack_query_parameters(skl_bgc_out=skl_bgc, z_tracers_out=z_tracers, &
           wave_spec_out=wave_spec)
@@ -187,6 +186,9 @@
       if (tr_aero .or. tr_zaero) call faero_optics !initialize aerosol optical 
                                                    !property tables
 
+      !For 'initial' restoring, important to have read in restart.
+      call ice_HaloRestore_init ! restored boundary conditions
+      
       ! Initialize shortwave components using swdn from previous timestep 
       ! if restarting. These components will be scaled to current forcing 
       ! in prep_radiation.

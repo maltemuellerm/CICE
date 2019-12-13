@@ -240,6 +240,12 @@
          call ice_timer_stop(timer_column) ! column physics
 
       !-----------------------------------------------------------------
+      ! restoring on grid boundaries (again), after thermo
+      !-----------------------------------------------------------------
+
+         if (restore_ice) call ice_HaloRestore
+      
+      !-----------------------------------------------------------------
       ! dynamics, transport, ridging
       !-----------------------------------------------------------------
 
