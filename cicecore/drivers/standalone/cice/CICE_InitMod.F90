@@ -12,6 +12,8 @@
 
       module CICE_InitMod
 
+      use CICE_OASISMCT, only: init_oasis_ice1, init_oasis_ice2, localComm
+      
       use ice_kinds_mod
       use ice_exit, only: abort_ice
       use ice_fileunits, only: init_fileunits, nu_diag
@@ -95,7 +97,9 @@
          tr_fsd, wave_spec
       character(len=*), parameter :: subname = '(cice_init)'
 
-      call init_communicate     ! initial setup for message passing
+      call init_oasis_ice1
+      call init_communicate(localComm)     ! initial setup for message passing
+      !call init_communicate     ! initial setup for message passing
       call init_fileunits       ! unit numbers
 
       ! tcx debug, this will create a different logfile for each pe
@@ -164,7 +168,7 @@
       call init_forcing_ocn(dt) ! initialize sss and sst from data
       call init_state           ! initialize the ice state
       call init_transport       ! initialize horizontal transport
-      call ice_HaloRestore_init ! restored boundary conditions
+      !call ice_HaloRestore_init ! restored boundary conditions
 
       call icepack_query_parameters(skl_bgc_out=skl_bgc, z_tracers_out=z_tracers, &
           wave_spec_out=wave_spec)
@@ -187,6 +191,9 @@
       if (tr_aero .or. tr_zaero) call faero_optics !initialize aerosol optical 
                                                    !property tables
 
+      !For 'initial' restoring, important to have read in restart.
+      call ice_HaloRestore_init ! restored boundary conditions
+      
       ! Initialize shortwave components using swdn from previous timestep 
       ! if restarting. These components will be scaled to current forcing 
       ! in prep_radiation.
@@ -202,6 +209,8 @@
    ! coupler communication or forcing data initialization
    !--------------------------------------------------------------------
 
+      call init_oasis_ice2 !OASIS-MCT initialization ----------------------
+      
       call init_forcing_atmo    ! initialize atmospheric forcing (standalone)
 
 #ifndef coupled

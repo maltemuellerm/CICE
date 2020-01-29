@@ -568,6 +568,9 @@
          call box2001_data
       elseif (trim(atm_data_type) == 'hycom') then
          call hycom_atm_data
+      elseif (trim(atm_data_type) == 'arome') then
+         write (nu_diag,*) ' atm_data_type is arome'
+         return !skip prepare_forcing
       else    ! default values set in init_flux
          return
       endif
@@ -1597,7 +1600,7 @@
       ! determine whether precip is rain or snow
       ! HadGEM forcing provides separate snowfall and rainfall rather 
       ! than total precipitation
-      if (trim(atm_data_type) /= 'hadgem') then
+      if ((trim(atm_data_type) /= 'hadgem').and.(trim(atm_data_type) /= 'arome')) then
 
         do j = jlo, jhi
         do i = ilo, ihi

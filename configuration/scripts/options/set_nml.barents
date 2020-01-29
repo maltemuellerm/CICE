@@ -1,0 +1,17 @@
+dt = 120.0
+runtype='initial'
+restart        = .true.
+restart_ext    = .true.
+use_restart_time = .false.
+restart_format = 'nc'
+lcdf64         = .true.
+ice_ic  = 'ICE_MACHINE_INPUTDATA/CICE_data/grid/barents/iced.2020-01-23-00000.nc'
+maskhalo_dyn   = .true.
+maskhalo_remap = .true.
+maskhalo_bound = .true.
+ew_boundary_type  = 'open'
+ns_boundary_type  = 'open'
+highfreq = .true.
+atm_data_type  = 'arome'
+restore_ice     = .true.
+trestore        =  0

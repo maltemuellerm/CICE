@@ -14,6 +14,8 @@
 
       module CICE_RunMod
 
+      use CICE_OASISMCT
+      
       use ice_kinds_mod
       use ice_fileunits, only: nu_diag
       use ice_arrays_column, only: oceanmixed_ice
@@ -43,7 +45,7 @@
 
       subroutine CICE_Run
 
-      use ice_calendar, only: istep, istep1, time, dt, stop_now, calendar
+      use ice_calendar, only: istep, istep1, time, dt, stop_now, calendar, npt
       use ice_forcing, only: get_forcing_atmo, get_forcing_ocn, &
           get_wave_spec
       use ice_forcing_bgc, only: get_forcing_bgc, get_atm_bgc, &
@@ -53,6 +55,7 @@
           timer_couple, timer_step
       logical (kind=log_kind) :: &
           tr_aero, tr_zaero, skl_bgc, z_tracers, wave_spec, tr_fsd
+      real (kind=dbl_kind) :: initTime
       character(len=*), parameter :: subname = '(CICE_Run)'
 
    !--------------------------------------------------------------------
@@ -70,7 +73,8 @@
       call icepack_warnings_flush(nu_diag)
       if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
          file=__FILE__, line=__LINE__)
-
+      
+      initTime = time
 #ifndef CICE_IN_NEMO
    !--------------------------------------------------------------------
    ! timestep loop
@@ -78,8 +82,16 @@
 
       timeLoop: do
 #endif
-
+         !call ice_oasismct_coupling(nint((istep-1)*dt))
+         !call ice_oasismct_recv(nint((istep-1)*dt))
+         if (istep .lt. npt) then ! before last timestep. only if w/ lag(??)
+           call ice_oasismct_recv(nint(time-initTime))
+         endif
          call ice_step
+         
+         if (istep .lt. npt) then ! before last timestep. only if w/ lag(??)
+           call ice_oasismct_send(nint(time-initTime))
+         endif
 
          istep  = istep  + 1    ! update time step counters
          istep1 = istep1 + 1
@@ -239,6 +251,12 @@
          call ice_timer_stop(timer_thermo) ! thermodynamics
          call ice_timer_stop(timer_column) ! column physics
 
+      !-----------------------------------------------------------------
+      ! restoring on grid boundaries (again), after thermo
+      !-----------------------------------------------------------------
+
+         if (restore_ice) call ice_HaloRestore
+      
       !-----------------------------------------------------------------
       ! dynamics, transport, ridging
       !-----------------------------------------------------------------

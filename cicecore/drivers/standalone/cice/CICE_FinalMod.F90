@@ -10,6 +10,8 @@
 
       module CICE_FinalMod
 
+      use CICE_OASISMCT, only: finalize_oasismct_coupling
+      
       use ice_kinds_mod
       use ice_communicate, only: my_task, master_task
       use ice_exit, only: end_run, abort_ice
@@ -64,9 +66,10 @@
    !-------------------------------------------------------------------
    ! quit MPI
    !-------------------------------------------------------------------
-
+      call finalize_oasismct_coupling
 #ifndef coupled
-      call end_run       ! quit MPI
+      !NS,2019. TODO: switch this on if not oasis coupling.
+      !call end_run       ! quit MPI
 #endif
 
       end subroutine CICE_Finalize

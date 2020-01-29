@@ -26,7 +26,8 @@
           get_fileunit, release_fileunit
       use ice_gather_scatter, only: gather_global, scatter_global
       use ice_read_write, only: ice_read, ice_read_nc, ice_read_global, &
-          ice_read_global_nc, ice_open, ice_open_nc, ice_close_nc
+          ice_read_global_nc, ice_open, ice_open_nc, ice_close_nc, &
+          ice_read_global_nc2, ice_read_nc2
       use ice_timers, only: timer_bound, ice_timer_start, ice_timer_stop
       use ice_exit, only: abort_ice
       use ice_global_reductions, only: global_minval, global_maxval
@@ -275,9 +276,28 @@
 
       else   ! rectangular grid
 
-         work_g1(:,:) = 75._dbl_kind/rad_to_deg  ! arbitrary polar latitude
-         work_g2(:,:) = c1
+!METNO START
+         !if (trim(grid_format) == 'nc') then  ! added for A20, by Keguang
+         if (1 .EQ. 0) then !TODO - reimplement
 
+            call ice_open_nc(grid_file,fid_grid)
+            call ice_open_nc(kmt_file,fid_kmt)
+
+            fieldname='ulat'
+            call ice_read_global_nc(fid_grid,1,fieldname,work_g1,.true.)
+            fieldname='kmt'
+            call ice_read_global_nc(fid_kmt,1,fieldname,work_g2,.true.)
+
+            call ice_close_nc(fid_grid)
+            call ice_close_nc(fid_kmt)
+
+         else
+
+            work_g1(:,:) = 75._dbl_kind/rad_to_deg !arbitrary polar latitude
+            work_g2(:,:) = c1
+
+         endif
+!METNO END
       endif
 
       call broadcast_array(work_g1, master_task)   ! ULAT
@@ -368,8 +388,14 @@
 #endif
       elseif (trim(grid_type) == 'cpom_grid') then
          call cpomgrid          ! cpom model orca1 type grid
-      else
-         call rectgrid          ! regular rectangular grid
+!METNO START
+      else         		! regular rectangular grid
+         if (trim(grid_format) == 'nc') then
+            call rectgrid_nc
+         else
+            call rectgrid
+         endif
+!METNO END
       endif
 
       !-----------------------------------------------------------------
@@ -1284,6 +1310,176 @@
       deallocate(work_g1)
 
       end subroutine rectgrid
+
+!METNO START
+!=======================================================================
+
+! Arctic-20km rectanglar land mask and grid. 
+! Land mask record number and field is:
+! (1) KMT.
+!
+! These really doesn't matter and isn't correct anyways.
+! There's an offset of 4 due to xi_t, eta_t, xi_u and eta_u
+! that comes before in the file /seb
+! Grid record number, field and units are: 
+! (1) ULAT   (degrees)    
+! (2) ULON   (degrees)    
+! (3) ANGLE  (radians)
+! (4) HTN    (m)
+! (5) HTE    (m)
+! (6) dxt    (m)
+! (7) dyt    (m)
+! (8) dxu    (m)
+! (9) dyu    (m)
+!    
+!
+! author: Keguang Wang, met.no, 14/10/2014
+! adapted for cice6: NS, 2019
+
+      subroutine rectgrid_nc
+
+#ifdef ncdf
+      use ice_blocks, only: nx_block, ny_block
+      use ice_constants, only: c0, c1, p5, p25, &
+          field_loc_center, field_loc_NEcorner,&
+          field_loc_Nface,  field_loc_Eface,&
+          field_type_scalar, field_type_angle
+      use ice_domain_size, only: max_blocks
+
+      integer (kind=int_kind) :: &
+         i, j, iblk, &
+         ilo,ihi,jlo,jhi, &     ! beginning and end of physical domain
+	 fid_grid, &		! file id for netCDF grid file
+	 fid_kmt		! file id for netCDF kmt file
+
+      logical (kind=log_kind) :: diag
+
+      character (char_len) :: &
+         fieldname		! field name in netCDF file
+
+      real (kind=dbl_kind) :: &
+         angle_0, angle_w, angle_s, angle_sw, &
+         pi, pi2, puny, rad_to_deg
+
+      real (kind=dbl_kind), dimension(:,:), allocatable :: &
+         work_g1
+
+      real (kind=dbl_kind), dimension (nx_block,ny_block,max_blocks) :: &
+         work1
+
+      type (block) :: &
+         this_block           ! block information for current block
+      
+      character(len=*), parameter :: subname = '(rectgrid_nc)'
+
+      call icepack_query_parameters(pi_out=pi, pi2_out=pi2, puny_out=puny, rad_to_deg_out=rad_to_deg)
+      call icepack_warnings_flush(nu_diag)
+      if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
+         file=__FILE__, line=__LINE__)
+
+      call ice_open_nc(grid_file,fid_grid)
+      call ice_open_nc(kmt_file,fid_kmt)
+
+      diag = .true.       ! write diagnostic info
+
+      !-----------------------------------------------------------------
+      ! topography
+      !-----------------------------------------------------------------
+
+      fieldname='kmt'
+      call ice_read_nc2(fid_kmt,fieldname,work1,diag, &
+                       field_loc_center, & 
+                       field_type_scalar)
+
+      hm(:,:,:) = c0
+      !$OMP PARALLEL DO PRIVATE(iblk,i,j,ilo,ihi,jlo,jhi,this_block)
+      do iblk = 1, nblocks
+         this_block = get_block(blocks_ice(iblk),iblk)         
+         ilo = this_block%ilo
+         ihi = this_block%ihi
+         jlo = this_block%jlo
+         jhi = this_block%jhi
+
+         do j = jlo, jhi
+         do i = ilo, ihi
+            hm(i,j,iblk) = work1(i,j,iblk)
+            if (hm(i,j,iblk) >= c1) hm(i,j,iblk) = c1
+         enddo
+         enddo
+      enddo
+      !$OMP END PARALLEL DO
+
+      !-----------------------------------------------------------------
+      ! lat, lon, angle
+      !-----------------------------------------------------------------
+
+      if (my_task == master_task) then
+         allocate(work_g1(nx_global,ny_global))
+      else
+         allocate(work_g1(1,1)) ! to save memory
+      endif
+
+      fieldname='ulat'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag) ! ULAT
+      call gridbox_verts(work_g1,latt_bounds)       
+      call scatter_global(ULAT, work_g1, master_task, distrb_info, &
+                          field_loc_NEcorner, field_type_scalar)
+
+      fieldname='ulon'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag) ! ULON
+      call gridbox_verts(work_g1,lont_bounds)       
+      call scatter_global(ULON, work_g1, master_task, distrb_info, &
+                          field_loc_NEcorner, field_type_scalar)
+
+      fieldname='angle'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag) ! ANGLE    
+      call scatter_global(ANGLE, work_g1, master_task, distrb_info, &
+                          field_loc_NEcorner, field_type_angle)
+
+      fieldname='htn'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)    
+      call scatter_global(HTN, work_g1, master_task, distrb_info, &
+                          field_loc_Nface, field_type_scalar)
+
+      fieldname='hte'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)    
+      call scatter_global(HTE, work_g1, master_task, distrb_info, &
+                          field_loc_Eface, field_type_scalar)
+
+      fieldname='dxt'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)    
+      call scatter_global(dxt, work_g1, master_task, distrb_info, &
+                          field_loc_center, field_type_scalar)
+
+      fieldname='dyt'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)    
+      call scatter_global(dyt, work_g1, master_task, distrb_info, &
+                          field_loc_center, field_type_scalar)
+
+      fieldname='dxu'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)    
+      call scatter_global(dxu, work_g1, master_task, distrb_info, &
+                          field_loc_NEcorner, field_type_scalar)
+
+      fieldname='dyu'
+      call ice_read_global_nc2(fid_grid,fieldname,work_g1,diag)
+      call scatter_global(dyu, work_g1, master_task, distrb_info, &
+                          field_loc_NEcorner, field_type_scalar)
+
+      ! fix units
+      ULAT   = ULAT   / rad_to_deg
+      ULON   = ULON   / rad_to_deg
+      ANGLE  = ANGLE  / rad_to_deg
+
+      deallocate(work_g1)
+
+      call ice_close_nc (nu_grid)
+      call ice_close_nc (nu_kmt)
+
+#endif
+
+      end subroutine rectgrid_nc
+!METNO END
 
 !=======================================================================
 
