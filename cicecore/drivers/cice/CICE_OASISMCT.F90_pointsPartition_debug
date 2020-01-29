@@ -6,16 +6,20 @@ module CICE_OASISMCT
   use ice_kinds_mod
   use ice_exit, only: abort_ice
   use ice_fileunits, only: nu_diag
-  use icepack_intfc, only: icepack_query_parameters
+  use icepack_intfc, only: icepack_query_parameters, icepack_query_tracer_indices
 
   use ice_blocks, only : block, get_block, nx_block, ny_block
   use ice_domain, only : nblocks, blocks_ice, distrb_info
   use ice_global_reductions, only: global_sum
   use ice_domain_size, only : nx_global, ny_global, max_blocks
-  use ice_grid, only: TLAT, TLON, hm
+  use ice_grid, only: TLAT, TLON, hm, ANGLET
 
-  use ice_state, only: aice, vice
-  use ice_flux, only: Tair, uatm, vatm, wind
+  use ice_state, only: aice, vice, uvel, vvel, trcr
+  use ice_flux, only: Tair, uatm, vatm, wind, potT, Qa, rhoa, &
+                      swvdr, swvdf, swidr, swidf, flw, &
+                      fsw, fswabs, fswthru, alvdf, &
+                      sst, strax, stray, frain, fsnow
+  use ice_constants
   
   implicit none
   save
@@ -33,15 +37,20 @@ module CICE_OASISMCT
   !integer, parameter :: nVars_in=3, nVars_out=2
   !CHARACTER(len=20), parameter  :: varsIn_names(nVars_in) =  [character(len=20)::"Tair","uatm","vatm"] , &
   !                                 varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"] ! Names of exchanged Fields
-  integer, parameter :: nVars_in=0, nVars_out=2
-  CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"]
-  CHARACTER(len=20) :: varsIn_names(nVars_in) ! Names of exchanged Fields
+  !integer, parameter :: nVars_in=0, nVars_out=2
+  !CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) =  [character(len=20)::"aice","hi"]
+  !integer, parameter :: nVars_in=0, nVars_out=5
+  !CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) =  [character(len=20)::"aice","hi","uvel","vvel","tsfc"]
+  !CHARACTER(len=20) :: varsIn_names(nVars_in) ! Names of exchanged Fields
+  integer, parameter :: nVars_in=14, nVars_out=6
+  CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) = [character(len=20)::"aice","alb","uvel","vvel","tice","sst"]
+  CHARACTER(len=20), parameter  :: varsIn_names(nVars_in) = [character(len=20)::"Tair","strau","strav","Pair","rhoa","qair","swdvdr","swdvdf","swdidr","swdidf","lwd","frain","fsnow","wind"]
   
   integer, dimension(nVars_in) :: varsIn_ids ! Coupling field ID
   integer, dimension(nVars_out) :: varsOut_ids ! Coupling field ID
   
   public :: init_oasis_ice1, init_oasis_ice2, &
-            ice_oasismct_coupling, &
+            ice_oasismct_send, ice_oasismct_recv, &
             finalize_oasismct_coupling
   
   !character (len=240) :: &
@@ -281,7 +290,7 @@ module CICE_OASISMCT
       
       end subroutine init_oasis_ice2
       
-      subroutine ice_oasismct_coupling (timeCouple)
+      subroutine ice_oasismct_send (timeCouple)
         !Called every timestep
         implicit none
         
@@ -292,14 +301,17 @@ module CICE_OASISMCT
         integer     :: ilo, ihi, jlo, jhi ! beginning and end of physical domain
         type(block) :: this_block         ! block information for current block
         
-        real(dbl_kind) :: puny
+        integer(kind=int_kind) :: nt_Tsfc
+        real(dbl_kind) :: puny, uTemp, vTemp
         real(dbl_kind), dimension(:,:), allocatable :: wrk_horiz
         
         allocate(wrk_horiz(lsize,1))
         
         call icepack_query_parameters(puny_out=puny)
+        call icepack_query_tracer_indices(nt_Tsfc_out=nt_Tsfc)
 
         !nonblocking sends. order needs to correspond to var_id -----------
+        !"aice","alb","uvel","vvel","tsfc" !!,"hi"
         wrk_horiz(:,:) = 0.0
         n=0
         do iblk = 1, nblocks
@@ -322,7 +334,7 @@ module CICE_OASISMCT
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
         ENDIF
-        if (oas_ierror .EQ. OASIS_Output) THEN
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
           WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(1)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
         endif
         
@@ -338,7 +350,11 @@ module CICE_OASISMCT
           do j = jlo, jhi
           do i = ilo, ihi
               n = n+1
-              wrk_horiz(n,1) = vice(i,j,iblk)/max(aice(i,j,iblk),puny) !aice*hi=vice
+              !wrk_horiz(n,1) = vice(i,j,iblk)/max(aice(i,j,iblk),puny) !aice*hi=vice
+              uTemp = alvdf(i,j,iblk) !if fsw very small (like edge of night), use indirect albedo (TODO: other options??)
+              vTemp = swvdr(i,j,iblk) + swidr(i,j,iblk) + swvdf(i,j,iblk) + swidf(i,j,iblk) !netsw down from (i,v)x(r,f)...also equal to fsw
+              if (vTemp.gt.puny) uTemp = (vTemp-fswabs(i,j,iblk))/vTemp ! fswabs is shortwave flux absorbed in ice and ocean (W/m^2)...TODO: snow on ice absorption??
+              wrk_horiz(n,1) = uTemp
           enddo    !i
           enddo    !j
         enddo       !iblk
@@ -348,20 +364,154 @@ module CICE_OASISMCT
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
         ENDIF
-        if (oas_ierror .EQ. OASIS_Output) THEN
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
           WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(2)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
         endif
         
+        wrk_horiz(:,:) = 0.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              wrk_horiz(n,1) = uvel(i,j,iblk)
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        i = 3
+        CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+        ENDIF
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
+          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        endif
+        
+        wrk_horiz(:,:) = 0.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              wrk_horiz(n,1) = vvel(i,j,iblk)
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        i = 4
+        CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+        ENDIF
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
+          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        endif
+        
+        wrk_horiz(:,:) = 0.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              wrk_horiz(n,1) = trcr(i,j,nt_Tsfc,iblk)+273.15 !to K for AROME
+              !wrk_horiz(n,1) = aice*trcr(i,j,nt_Tsfc,iblk) + (1-aice)*sst(i,j,iblk)
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        i = 5
+        CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+        ENDIF
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
+          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        endif
+        
+        wrk_horiz(:,:) = 0.0
+        n=0
+        do iblk = 1, nblocks
+          this_block = get_block(blocks_ice(iblk),iblk)         
+          ilo = this_block%ilo
+          ihi = this_block%ihi
+          jlo = this_block%jlo
+          jhi = this_block%jhi
+          
+          do j = jlo, jhi
+          do i = ilo, ihi
+              n = n+1
+              wrk_horiz(n,1) = sst(i,j,iblk)+273.15 !to K for AROME
+          enddo    !i
+          enddo    !j
+        enddo       !iblk
+        
+        i = 6
+        CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+        ENDIF
+        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
+          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        endif
+      end subroutine ice_oasismct_send
+      
+      subroutine ice_oasismct_recv (timeCouple)
+        !Called every timestep
+        implicit none
+        
+        integer, intent(in) :: timeCouple !time of the call (by convention at the beginning of the timestep)
+        
+        integer :: oas_ierror
+        integer     :: i, j, iblk, n, gi
+        integer     :: ilo, ihi, jlo, jhi ! beginning and end of physical domain
+        type(block) :: this_block         ! block information for current block
+        
+        integer(kind=int_kind) :: nt_Tsfc
+        real(dbl_kind) :: puny, uTemp, vTemp
+        real(dbl_kind), dimension(:,:), allocatable :: wrk_horiz
+        
+        allocate(wrk_horiz(lsize,1))
+        
+        call icepack_query_parameters(puny_out=puny)
+        call icepack_query_tracer_indices(nt_Tsfc_out=nt_Tsfc)
+          
         !blocking receives -----------
+        !We can call oasis_get every timestep, but we should only update info for CICE if information has been communicated.
+        ! "Tair","uatm","vatm","Pair","rhoa","qair","swdvdr","swdvdf","swdidr","swdidf","lwd","frain","fsnow"
       if (nVars_in .GT. 0) THEN
-        CALL oasis_get(varsIn_ids(1), timeCouple, wrk_horiz, oas_ierror)
+        i = 1
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
         IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
         ENDIF
         
-        if (oas_ierror .EQ. OASIS_Input) then
-          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(1)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
           n=0
           do iblk = 1, nblocks
             this_block = get_block(blocks_ice(iblk),iblk)         
@@ -379,14 +529,16 @@ module CICE_OASISMCT
           enddo       !iblk
         endif
         
-        CALL oasis_get(varsIn_ids(2), timeCouple, wrk_horiz, oas_ierror)
+        i = 2
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
         IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
         ENDIF
         
-        if (oas_ierror .EQ. OASIS_Input) then
-          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(2)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
           n=0
           do iblk = 1, nblocks
             this_block = get_block(blocks_ice(iblk),iblk)         
@@ -398,23 +550,25 @@ module CICE_OASISMCT
             do j = jlo, jhi
             do i = ilo, ihi
                 n = n+1
-                uatm(i,j,iblk) = wrk_horiz(n,1)
+                strax(i,j,iblk) = wrk_horiz(n,1)
             enddo    !i
             enddo    !j
           enddo       !iblk
         endif
         
-        CALL oasis_get(varsIn_ids(3), timeCouple, wrk_horiz, oas_ierror)
+        i = 3
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
         IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
           WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
           CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
         ENDIF
         
-        if (oas_ierror .EQ. OASIS_Input) then
-          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(3)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
           n=0
           do iblk = 1, nblocks
-            this_block = get_block(blocks_ice(iblk),iblk)         
+            this_block = get_block(blocks_ice(iblk),iblk)
             ilo = this_block%ilo
             ihi = this_block%ihi
             jlo = this_block%jlo
@@ -423,17 +577,325 @@ module CICE_OASISMCT
             do j = jlo, jhi
             do i = ilo, ihi
                 n = n+1
-                vatm(i,j,iblk) = wrk_horiz(n,1)
+                stray(i,j,iblk) = wrk_horiz(n,1)
                 
-                wind(i,j,iblk) = sqrt( uatm(i,j,iblk)*uatm(i,j,iblk) + vatm(i,j,iblk)*vatm(i,j,iblk) )
+                !wind(i,j,iblk) = sqrt( uatm(i,j,iblk)*uatm(i,j,iblk) + vatm(i,j,iblk)*vatm(i,j,iblk) )
+                !convert u,v from zonal to grid-relative as in prepare_forcing
+                uTemp = strax(i,j,iblk)*cos(ANGLET(i,j,iblk)) + &
+                        stray(i,j,iblk)*sin(ANGLET(i,j,iblk))
+                vTemp = stray(i,j,iblk)*cos(ANGLET(i,j,iblk)) - &
+                        strax(i,j,iblk)*sin(ANGLET(i,j,iblk))
+                strax(i,j,iblk) = uTemp
+                stray(i,j,iblk) = vTemp
             enddo    !i
             enddo    !j
           enddo       !iblk
         endif
-      endif !nVars_in  
+        
+        i = 4
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                potT(i,j,iblk) = wrk_horiz(n,1) !variable passed in is pressure
+                potT(i,j,iblk) = Tair(i,j,iblk)*((1.0E5/potT(i,j,iblk))**0.286)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 5
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                rhoa(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 6
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                Qa(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 7
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                swvdr(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 8
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                swvdf(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 9
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                swidr(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 10
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                swidf(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        fsw = swvdr+swvdf+swidr+swidf !unclear if this is necessary
+        
+        i = 11
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                flw(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 12
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                frain(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+        
+        i = 13
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                fsnow(i,j,iblk) = wrk_horiz(n,1)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+
+        i = 14
+        CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
+        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
+          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis get')
+        ENDIF
+        if ((oas_ierror.EQ.OASIS_Recvd).OR.(oas_ierror.EQ.OASIS_FromRest).OR.(oas_ierror.EQ.OASIS_Input).OR. &
+            (oas_ierror.EQ.OASIS_RecvOut).OR.(oas_ierror.EQ.OASIS_FromRestOut)) then
+          WRITE (nu_diag,*) 'oasis_get ',trim(varsIn_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+          n=0
+          do iblk = 1, nblocks
+            this_block = get_block(blocks_ice(iblk),iblk)
+            ilo = this_block%ilo
+            ihi = this_block%ihi
+            jlo = this_block%jlo
+            jhi = this_block%jhi
+
+            do j = jlo, jhi
+            do i = ilo, ihi
+                n = n+1
+                wind(i,j,iblk) = wrk_horiz(n,1)
+                uTemp = ATAN2(stray(i,j,iblk),strax(i,j,iblk))
+                uatm(i,j,iblk) = wind(i,j,iblk)*COS(uTemp)
+                vatm(i,j,iblk) = wind(i,j,iblk)*SIN(uTemp)
+            enddo    !i
+            enddo    !j
+          enddo       !iblk
+        endif
+      endif !nVars_in
         deallocate(wrk_horiz)
       
-      end subroutine ice_oasismct_coupling
+      end subroutine ice_oasismct_recv
       
       subroutine finalize_oasismct_coupling
         implicit none

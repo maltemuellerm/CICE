@@ -40,8 +40,6 @@
    !-------------------------------------------------------------------
    ! stop timers and print timer info
    !-------------------------------------------------------------------
-
-      call finalize_oasismct_coupling
       
       call ice_timer_stop(timer_total)        ! stop timing entire run
       call ice_timer_print_all(stats=.false.) ! print timing information
@@ -68,9 +66,10 @@
    !-------------------------------------------------------------------
    ! quit MPI
    !-------------------------------------------------------------------
-
+      call finalize_oasismct_coupling
 #ifndef coupled
-      call end_run       ! quit MPI
+      !NS,2019. TODO: switch this on if not oasis coupling.
+      !call end_run       ! quit MPI
 #endif
 
       end subroutine CICE_Finalize

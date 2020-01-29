@@ -1286,14 +1286,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:) = fill
-      array(1:nx_block,ny_block-j+1,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:) = fill
-      array(nx_block-i+1,1:ny_block,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -1678,14 +1678,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:) = fill
-      array(1:nx_block,ny_block-j+1,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:) = fill
-      array(nx_block-i+1,1:ny_block,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -2070,14 +2070,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:) = fill
-      array(1:nx_block,ny_block-j+1,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:) = fill
-      array(nx_block-i+1,1:ny_block,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -2490,14 +2490,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -2941,14 +2941,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -3392,14 +3392,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -3847,14 +3847,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -4322,14 +4322,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !
@@ -4797,14 +4797,14 @@ contains
 !
 !-----------------------------------------------------------------------
 
-   do j = 1,nghost
-      array(1:nx_block,           j,:,:,:) = fill
-      array(1:nx_block,ny_block-j+1,:,:,:) = fill
-   enddo
-   do i = 1,nghost
-      array(i,           1:ny_block,:,:,:) = fill
-      array(nx_block-i+1,1:ny_block,:,:,:) = fill
-   enddo
+   !do j = 1,nghost
+   !   array(1:nx_block,           j,:,:,:) = fill
+   !   array(1:nx_block,ny_block-j+1,:,:,:) = fill
+   !enddo
+   !do i = 1,nghost
+   !   array(i,           1:ny_block,:,:,:) = fill
+   !   array(nx_block-i+1,1:ny_block,:,:,:) = fill
+   !enddo
 
 !-----------------------------------------------------------------------
 !

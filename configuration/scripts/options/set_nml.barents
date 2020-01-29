@@ -12,4 +12,4 @@ maskhalo_bound = .true.
 ew_boundary_type  = 'open'
 ns_boundary_type  = 'open'
 highfreq = .true.
-atm_data_type  = 'box2001'
+atm_data_type  = 'arome'
