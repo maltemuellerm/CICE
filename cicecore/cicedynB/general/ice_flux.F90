@@ -41,6 +41,12 @@
          strax   , & ! wind stress components (N/m^2)
          stray   , & ! 
 
+       ! in from wave  
+         strwavex   , & ! wave-on-ice stress, x-direction (N/m^2)
+         strwavey   , & ! wave-on-ice stress, y-direction (N/m^2)
+         zBreak     , & ! wave flexure amplitude (UNITS TODO)
+         lBreak     , & ! wave flexure wavelength (m)
+       
        ! in from ocean
          uocn    , & ! ocean current, x-direction (m/s)
          vocn    , & ! ocean current, y-direction (m/s)
@@ -338,6 +344,10 @@
       allocate( &
          strax      (nx_block,ny_block,max_blocks), & ! wind stress components (N/m^2)
          stray      (nx_block,ny_block,max_blocks), & ! 
+         strwavex      (nx_block,ny_block,max_blocks), & ! 
+         strwavey      (nx_block,ny_block,max_blocks), & ! 
+         zBreak      (nx_block,ny_block,max_blocks), & ! 
+         lBreak      (nx_block,ny_block,max_blocks), & ! 
          uocn       (nx_block,ny_block,max_blocks), & ! ocean current, x-direction (m/s)
          vocn       (nx_block,ny_block,max_blocks), & ! ocean current, y-direction (m/s)
          ss_tltx    (nx_block,ny_block,max_blocks), & ! sea surface slope, x-direction (m/m)
@@ -620,6 +630,15 @@
       faero_atm (:,:,:,:) = c0           ! aerosol deposition rate (kg/m2/s)
       flux_bio_atm (:,:,:,:) = c0        ! zaero and bio deposition rate (kg/m2/s)
 
+      !-----------------------------------------------------------------
+      ! fluxes received from waves
+      !-----------------------------------------------------------------
+
+      strwavex(:,:,:)= c0              !
+      strwavey(:,:,:)= c0              !
+      zBreak(:,:,:)= c0              !
+      lBreak(:,:,:)= 100.0_dbl_kind              ! 
+      
       !-----------------------------------------------------------------
       ! fluxes received from ocean
       !-----------------------------------------------------------------

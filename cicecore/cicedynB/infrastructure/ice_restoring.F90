@@ -607,8 +607,8 @@
       if (trestore == 0) then
          trest = dt          ! use data instantaneously
       else
-         !trest = real(trestore,kind=dbl_kind) * secday ! seconds
-         trest = real(trestore,kind=dbl_kind) * secday*2 ! seconds. *2 since called 2x now in CICE_RunMod
+         trest = real(trestore,kind=dbl_kind) * secday ! seconds
+         !trest = real(trestore,kind=dbl_kind) * secday*2 ! seconds. *2 since called 2x now in CICE_RunMod
       endif
       ctime = dt/trest
 

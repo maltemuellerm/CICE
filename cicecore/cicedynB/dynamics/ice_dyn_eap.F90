@@ -126,7 +126,7 @@
       use ice_flux, only: rdg_conv, strairxT, strairyT, &
           strairx, strairy, uocn, vocn, ss_tltx, ss_tlty, iceumask, fm, &
           strtltx, strtlty, strocnx, strocny, strintx, strinty, taubx, tauby, &
-          strocnxT, strocnyT, strax, stray, &
+          strocnxT, strocnyT, strax, stray, strwavex, strwavey, &
           Tbu, hwater, &
           stressp_1, stressp_2, stressp_3, stressp_4, &
           stressm_1, stressm_2, stressm_3, stressm_4, &
@@ -265,8 +265,11 @@
          file=__FILE__, line=__LINE__)
 
       if (.not. calc_strair) then       
-         strairx(:,:,:) = strax(:,:,:)
-         strairy(:,:,:) = stray(:,:,:)
+         !strairx(:,:,:) = strax(:,:,:)
+         !strairy(:,:,:) = stray(:,:,:)
+         !NS 2020. For wave coupling
+         strairx(:,:,:) = (strax(:,:,:)+strwavex(:,:,:))*aice(:,:,:) ! to allow for intra-dtCoupling time varying aice
+         strairy(:,:,:) = (stray(:,:,:)+strwavey(:,:,:))*aice(:,:,:)
       else
          call t2ugrid_vector(strairx)
          call t2ugrid_vector(strairy)
