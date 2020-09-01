@@ -42,8 +42,10 @@
       use icepack_intfc, only: icepack_query_tracer_indices, icepack_query_parameters
 
       implicit none
+      save
       private
       public :: init_forcing_atmo, init_forcing_ocn, alloc_forcing, &
+                alloc_forcing_topaz, nudge_ocn_to_topaz, &
                 get_forcing_atmo, get_forcing_ocn, get_wave_spec, &
                 read_clim_data, read_clim_data_nc, &
                 interpolate_data, interp_coeff_monthly, &
@@ -87,6 +89,15 @@
       real (kind=dbl_kind), dimension(:,:,:), allocatable :: &
           cldf                ! cloud fraction
 
+      !NS 2020: for nudging ocean mixed layer sst, sss, uocn, vocn, hmix, qdp
+      real (kind=dbl_kind), dimension(:,:,:), allocatable, public :: &
+            sst_topaz, & !sea surface temperature (C)
+            sss_topaz, & !sea surface salinity (ppt)
+           uocn_topaz, & !ocean current, x-direction (m/s)
+           vocn_topaz, & !ocean current, y-direction (m/s)
+           hmix_topaz, & !mixed layer depth (m)
+            qdp_topaz    !deep ocean heat flux (W/m^2), negative upward
+      
       real (kind=dbl_kind), dimension(:,:,:,:), allocatable :: &
             fsw_data, & ! field values at 2 temporal data points
            cldf_data, &
@@ -207,6 +218,64 @@
       cldf = c0
 
       end subroutine alloc_forcing
+
+!=======================================================================
+!NS 2020: Nudging mixed layer model to external data
+
+      subroutine alloc_forcing_topaz
+        integer (int_kind) :: ierr
+
+        allocate ( &
+              sst_topaz(nx_block,ny_block, max_blocks), & !
+              sss_topaz(nx_block,ny_block, max_blocks), &
+             uocn_topaz(nx_block,ny_block, max_blocks), &
+             vocn_topaz(nx_block,ny_block, max_blocks), &
+             hmix_topaz(nx_block,ny_block, max_blocks), &
+              qdp_topaz(nx_block,ny_block, max_blocks), &
+              stat=ierr)
+        if (ierr/=0) call abort_ice('(alloc_forcing_topaz): Out of Memory')
+      end subroutine alloc_forcing_topaz
+      
+      subroutine nudge_ocn_to_topaz
+        use ice_flux, only: sst,sss,uocn,vocn,hmix,qdp
+        use ice_blocks, only: block, get_block, nx_block, ny_block
+        use ice_domain, only: nblocks, blocks_ice
+        
+        ! local variables
+        real (kind=dbl_kind) :: &
+           wtNudge
+        integer (kind=int_kind) :: &
+           i, j, iblk, & ! horizontal indices
+           ilo, ihi, jlo, jhi ! beginning and end of physical domain
+        type(block) :: this_block         ! block information for current block
+                
+        !Relaxation with uniform weight
+        wtNudge = 1./(10*24*3600) !TODO: namelist option
+        do iblk = 1, nblocks
+           this_block = get_block(blocks_ice(iblk),iblk)
+           ilo = this_block%ilo
+           ihi = this_block%ihi
+           jlo = this_block%jlo
+           jhi = this_block%jhi
+            
+            do j = jlo, jhi
+            do i = ilo, ihi
+              sst(i,j,iblk) = sst(i,j,iblk) + (sst_topaz(i,j,iblk)-sst(i,j,iblk))*wtNudge
+              sss(i,j,iblk) = sss(i,j,iblk) + (sss_topaz(i,j,iblk)-sss(i,j,iblk))*wtNudge
+              uocn(i,j,iblk) = uocn(i,j,iblk) + (uocn_topaz(i,j,iblk)-uocn(i,j,iblk))*wtNudge
+              vocn(i,j,iblk) = vocn(i,j,iblk) + (vocn_topaz(i,j,iblk)-vocn(i,j,iblk))*wtNudge
+              hmix(i,j,iblk) = hmix(i,j,iblk) + (hmix_topaz(i,j,iblk)-hmix(i,j,iblk))*wtNudge
+              qdp(i,j,iblk) = qdp(i,j,iblk) + (qdp_topaz(i,j,iblk)-qdp(i,j,iblk))*wtNudge
+              
+              !Enforce physical bounds on variables
+              !sst(i,j,iblk) = max(sst(i,j,iblk),Tf(i,j,iblk))
+              sss(i,j,iblk) = max(sss(i,j,iblk), c1)
+              hmix(i,j,iblk) = max(hmix(i,j,iblk),c1)
+           enddo
+           enddo
+        enddo
+      
+      end subroutine nudge_ocn_to_topaz
 
 !=======================================================================
 

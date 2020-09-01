@@ -77,7 +77,7 @@
       use ice_flux, only: init_coupler_flux, init_history_therm, &
           init_history_dyn, init_flux_atm, init_flux_ocn, alloc_flux
       use ice_forcing, only: init_forcing_ocn, init_forcing_atmo, &
-          get_forcing_atmo, get_forcing_ocn, get_wave_spec
+          get_forcing_atmo, get_forcing_ocn, get_wave_spec, alloc_forcing_topaz
       use ice_forcing_bgc, only: get_forcing_bgc, get_atm_bgc, &
           faero_default, faero_optics, alloc_forcing_bgc
       use ice_grid, only: init_grid1, init_grid2, alloc_grid
@@ -210,6 +210,7 @@
    !--------------------------------------------------------------------
 
       call init_oasis_ice2 !OASIS-MCT initialization ----------------------
+      call alloc_forcing_topaz
       
       call init_forcing_atmo    ! initialize atmospheric forcing (standalone)
 

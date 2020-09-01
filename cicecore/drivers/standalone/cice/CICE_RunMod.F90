@@ -82,14 +82,14 @@
 
       timeLoop: do
 #endif
-         !call ice_oasismct_coupling(nint((istep-1)*dt))
-         !call ice_oasismct_recv(nint((istep-1)*dt))
          if (istep .lt. npt) then ! before last timestep. only if w/ lag(??)
            call ice_oasismct_recv(nint(time-initTime))
          endif
+         
          call ice_step
          
-         if (istep .lt. npt) then ! before last timestep. only if w/ lag(??)
+         if (istep .le. npt) then ! TODO: check
+         !if (istep .lt. npt) then ! before last timestep. only if w/ lag(??)
            call ice_oasismct_send(nint(time-initTime))
          endif
 
@@ -166,6 +166,7 @@
           write_restart_bgc, write_restart_hbrine
       use ice_restart_driver, only: dumpfile
       use ice_restoring, only: restore_ice, ice_HaloRestore
+      use ice_forcing, only: nudge_ocn_to_topaz
       use ice_step_mod, only: prep_radiation, step_therm1, step_therm2, &
           update_state, step_dyn_horiz, step_dyn_ridge, step_radiation, &
           biogeochemistry, save_init, step_dyn_wave
@@ -256,6 +257,7 @@
       !-----------------------------------------------------------------
 
          if (restore_ice) call ice_HaloRestore
+         call nudge_ocn_to_topaz
       
       !-----------------------------------------------------------------
       ! dynamics, transport, ridging
@@ -263,7 +265,8 @@
 
          ! wave fracture of the floe size distribution
          ! note this is called outside of the dynamics subcycling loop
-         if (tr_fsd .and. wave_spec) call step_dyn_wave(dt)
+         !if (tr_fsd .and. wave_spec) call step_dyn_wave(dt)
+         if (tr_fsd ) call step_dyn_wave(dt) !TODO: run for all wave_spec (TODO: could add "Boutin" conditionals for rest of code)
 
          do k = 1, ndtd
 

@@ -40,6 +40,11 @@
          vicen_rest , & ! volume per unit area of ice          (m)
          vsnon_rest     ! volume per unit area of snow         (m)
 
+      real (kind=dbl_kind), dimension (:,:,:), allocatable, public :: &
+         aice_bry , & ! concentration of ice
+         vice_bry , & ! volume per unit area of ice          (m)
+         vsno_bry     ! volume per unit area of snow         (m)
+      
       real (kind=dbl_kind), dimension (:,:,:,:,:), allocatable :: &
          trcrn_rest     ! tracers
 
@@ -60,7 +65,7 @@
       use ice_domain, only: ew_boundary_type, ns_boundary_type, &
           nblocks, blocks_ice
       use ice_grid, only: tmask, hm
-      use ice_flux, only: Tf, Tair, salinz, Tmltz
+      use ice_flux, only: Tf, Tair, salinz, Tmltz, sst
       use ice_restart_shared, only: restart_ext
 
    integer (int_kind) :: &
@@ -100,6 +105,13 @@
              vicen_rest(nx_block,ny_block,ncat,max_blocks), &
              vsnon_rest(nx_block,ny_block,ncat,max_blocks), &
              trcrn_rest(nx_block,ny_block,ntrcr,ncat,max_blocks))
+   allocate (aice_bry(nx_block,ny_block,max_blocks), &
+             vice_bry(nx_block,ny_block,max_blocks), &
+             vsno_bry(nx_block,ny_block,max_blocks))
+   !*_bry filled through OASIS
+   aice_bry(:,:,:) = 0.0_dbl_kind
+   vice_bry(:,:,:) = 0.0_dbl_kind
+   vsno_bry(:,:,:) = 0.0_dbl_kind
 
 !-----------------------------------------------------------------------
 ! initialize
@@ -552,16 +564,8 @@
  subroutine ice_HaloRestore
 
       use ice_blocks, only: block, get_block, nblocks_x, nblocks_y
-      use ice_calendar, only: dt
       use ice_domain, only: ew_boundary_type, ns_boundary_type, &
           nblocks, blocks_ice
-      !for cleanup_itd
-      use icepack_intfc, only: cleanup_itd
-      use ice_domain_size, only: ncat, nilyr, nslyr, n_aero, nblyr
-      use ice_arrays_column, only: hin_max, fzsal, first_ice
-      use ice_flux, only: fpond, fresh, fhocn, fsalt
-      use ice_flux_bgc, only: flux_bio, faero_ocn
-      use ice_state, only: aice, aice0, trcr_depend, n_trcr_strata, trcr_base, nt_strata
 !-----------------------------------------------------------------------
 !
 !  local variables
@@ -573,6 +577,7 @@
      ilo,ihi,jlo,jhi,    &! beginning and end of physical domain
      ibc,                &! ghost cell column or row
      ntrcr,              &! 
+     nt_Tsfc, nt_qice, nt_sice, nt_qsno, &!
      npad                 ! padding column/row counter
 
    type (block) :: &
@@ -580,8 +585,9 @@
 
    real (dbl_kind) :: &
      secday,             &!
+     puny, Tsfc, fac, &
      ctime                ! dt/trest
-
+   
    !for cleanup_itd
    logical (kind=log_kind) :: tr_aero, tr_pond, tr_pond_topo, heat_capacity
    integer (int_kind) :: nbtrcr
@@ -589,10 +595,6 @@
    character(len=*), parameter :: subname = '(ice_HaloRestore)'
 
    call ice_timer_start(timer_bound)
-   call icepack_query_parameters(secday_out=secday, heat_capacity_out=heat_capacity)
-   call icepack_query_tracer_sizes(ntrcr_out=ntrcr, nbtrcr_out=nbtrcr)
-   call icepack_query_tracer_flags( &
-         tr_aero_out=tr_aero, tr_pond_out=tr_pond, tr_pond_topo_out=tr_pond_topo)
    call icepack_warnings_flush(nu_diag)
    if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
       file=__FILE__, line=__LINE__)
@@ -602,15 +604,6 @@
 !  Initialize
 !
 !-----------------------------------------------------------------------
-
-      ! for now, use same restoring constant as for SST
-      if (trestore == 0) then
-         trest = dt          ! use data instantaneously
-      else
-         trest = real(trestore,kind=dbl_kind) * secday ! seconds
-         !trest = real(trestore,kind=dbl_kind) * secday*2 ! seconds. *2 since called 2x now in CICE_RunMod
-      endif
-      ctime = dt/trest
 
 !-----------------------------------------------------------------------
 !
@@ -629,51 +622,8 @@
 
       if (this_block%iblock == 1) then              ! west edge
          if (trim(ew_boundary_type) /= 'cyclic') then
-            do n = 1, ncat
-            do j = 1, ny_block
-            do i = 1, ilo
-               aicen(i,j,n,iblk) = aicen(ilo,j,n,iblk) &
-                  + (aicen_rest(i,j,n,iblk)-aicen(ilo,j,n,iblk))*ctime
-               vicen(i,j,n,iblk) = vicen(ilo,j,n,iblk) &
-                  + (vicen_rest(i,j,n,iblk)-vicen(ilo,j,n,iblk))*ctime
-               vsnon(i,j,n,iblk) = vsnon(ilo,j,n,iblk) &
-                  + (vsnon_rest(i,j,n,iblk)-vsnon(ilo,j,n,iblk))*ctime
-               ! Also restore dynamic variables (in ice_state.F90), 
-               ! here to the neighbouring physical cell.
-               ! Consider _rest variables for these in future.
-               uvel(i,j,iblk) = uvel(ilo,j,iblk)
-               vvel(i,j,iblk) = vvel(ilo,j,iblk)
-               divu(i,j,iblk) = divu(ilo,j,iblk)
-               shear(i,j,iblk) = shear(ilo,j,iblk)
-               strength(i,j,iblk) = strength(ilo,j,iblk)
-               do nt = 1, ntrcr
-                  trcrn(i,j,nt,n,iblk) = trcrn(ilo,j,nt,n,iblk) &
-                     + (trcrn_rest(i,j,nt,n,iblk)-trcrn(ilo,j,nt,n,iblk))*ctime
-               enddo
-            enddo
-            enddo
-            enddo
-            do j=1,ny_block
-            do i=1,ilo
-              call cleanup_itd (dt=dt, ntrcr=ntrcr, &
-                        nilyr=nilyr, nslyr=nslyr, &
-                        ncat=ncat, hin_max=hin_max, &
-                        aicen=aicen(i,j,:,iblk), trcrn=trcrn(i,j,:,:,iblk), &
-                        vicen=vicen(i,j,:,iblk), vsnon=vsnon(i,j,:,iblk), &
-                        aice0=aice0(i,j,iblk), aice=aice(i,j,iblk), &
-                        n_aero=n_aero, &
-                        nbtrcr=nbtrcr, nblyr=nblyr, &
-                        tr_aero=tr_aero, &
-                        tr_pond_topo=tr_pond_topo, heat_capacity=heat_capacity, &  
-                        first_ice=first_ice(i,j,:,iblk), &
-                        trcr_depend=trcr_depend(:), trcr_base=trcr_base(:,:), &
-                        n_trcr_strata=n_trcr_strata(:), nt_strata=nt_strata(:,:), &
-                        fpond=fpond(i,j,iblk), fresh=fresh(i,j,iblk), &
-                        fsalt=fsalt(i,j,iblk), fhocn=fhocn(i,j,iblk), &
-                        faero_ocn=faero_ocn(i,j,:,iblk), fzsal=fzsal(i,j,iblk), &
-                        flux_bio=flux_bio(i,j,1:nbtrcr,iblk))
-            enddo
-            enddo
+            call ice_HaloRestore_block(iblk, 1, ilo-1,1, ny_block, &
+                                  ilo,jlo,1,0)
          endif
       endif
 
@@ -691,101 +641,15 @@
                if (npad /= 0) ibc = ibc - 1
             enddo
 
-            do n = 1, ncat
-            do j = 1, ny_block
-            do i = ihi, ibc
-               aicen(i,j,n,iblk) = aicen(ihi,j,n,iblk) &
-                  + (aicen_rest(i,j,n,iblk)-aicen(ihi,j,n,iblk))*ctime
-               vicen(i,j,n,iblk) = vicen(ihi,j,n,iblk) &
-                  + (vicen_rest(i,j,n,iblk)-vicen(ihi,j,n,iblk))*ctime
-               vsnon(i,j,n,iblk) = vsnon(ihi,j,n,iblk) &
-                  + (vsnon_rest(i,j,n,iblk)-vsnon(ihi,j,n,iblk))*ctime
-               ! Also restore dynamic variables (in ice_state.F90), 
-               ! here to the neighbouring physical cell.
-               ! Consider _rest variables for these in future.
-               uvel(i,j,iblk) = uvel(ihi,j,iblk)
-               vvel(i,j,iblk) = vvel(ihi,j,iblk)
-               divu(i,j,iblk) = divu(ihi,j,iblk)
-               shear(i,j,iblk) = shear(ihi,j,iblk)
-               strength(i,j,iblk) = strength(ihi,j,iblk)
-               do nt = 1, ntrcr
-                  trcrn(i,j,nt,n,iblk) = trcrn(ihi,j,nt,n,iblk) &
-                     + (trcrn_rest(i,j,nt,n,iblk)-trcrn(ihi,j,nt,n,iblk))*ctime
-               enddo
-            enddo
-            enddo
-            enddo
-            do j=1,ny_block
-            do i=ihi, ibc
-              call cleanup_itd (dt=dt, ntrcr=ntrcr, &
-                        nilyr=nilyr, nslyr=nslyr, &
-                        ncat=ncat, hin_max=hin_max, &
-                        aicen=aicen(i,j,:,iblk), trcrn=trcrn(i,j,:,:,iblk), &
-                        vicen=vicen(i,j,:,iblk), vsnon=vsnon(i,j,:,iblk), &
-                        aice0=aice0(i,j,iblk), aice=aice(i,j,iblk), &
-                        n_aero=n_aero, &
-                        nbtrcr=nbtrcr, nblyr=nblyr, &
-                        tr_aero=tr_aero, &
-                        tr_pond_topo=tr_pond_topo, heat_capacity=heat_capacity, &  
-                        first_ice=first_ice(i,j,:,iblk), &
-                        trcr_depend=trcr_depend(:), trcr_base=trcr_base(:,:), &
-                        n_trcr_strata=n_trcr_strata(:), nt_strata=nt_strata(:,:), &
-                        fpond=fpond(i,j,iblk), fresh=fresh(i,j,iblk), &
-                        fsalt=fsalt(i,j,iblk), fhocn=fhocn(i,j,iblk), &
-                        faero_ocn=faero_ocn(i,j,:,iblk), fzsal=fzsal(i,j,iblk), &
-                        flux_bio=flux_bio(i,j,1:nbtrcr,iblk))
-            enddo
-            enddo
+            call ice_HaloRestore_block(iblk, ihi+1, ibc,1, ny_block, &
+                                  ihi,jlo,1,0)
          endif
       endif
 
       if (this_block%jblock == 1) then              ! south edge
          if (trim(ns_boundary_type) /= 'cyclic') then
-            do n = 1, ncat
-            do j = 1, jlo
-            do i = 1, nx_block
-               aicen(i,j,n,iblk) = aicen(i,jlo,n,iblk) &
-                  + (aicen_rest(i,j,n,iblk)-aicen(i,jlo,n,iblk))*ctime
-               vicen(i,j,n,iblk) = vicen(i,jlo,n,iblk) &
-                  + (vicen_rest(i,j,n,iblk)-vicen(i,jlo,n,iblk))*ctime
-               vsnon(i,j,n,iblk) = vsnon(i,jlo,n,iblk) &
-                  + (vsnon_rest(i,j,n,iblk)-vsnon(i,jlo,n,iblk))*ctime
-               ! Also restore dynamic variables (in ice_state.F90), 
-               ! here to the neighbouring physical cell.
-               ! Consider _rest variables for these in future.
-               uvel(i,j,iblk) = uvel(i,jlo,iblk)
-               vvel(i,j,iblk) = vvel(i,jlo,iblk)
-               divu(i,j,iblk) = divu(i,jlo,iblk)
-               shear(i,j,iblk) = shear(i,jlo,iblk)
-               strength(i,j,iblk) = strength(i,jlo,iblk)
-               do nt = 1, ntrcr
-                  trcrn(i,j,nt,n,iblk) = trcrn(i,jlo,nt,n,iblk) &
-                     + (trcrn_rest(i,j,nt,n,iblk)-trcrn(i,jlo,nt,n,iblk))*ctime
-               enddo
-            enddo
-            enddo
-            enddo
-            do j=1,jlo
-            do i=1,nx_block
-              call cleanup_itd (dt=dt, ntrcr=ntrcr, &
-                        nilyr=nilyr, nslyr=nslyr, &
-                        ncat=ncat, hin_max=hin_max, &
-                        aicen=aicen(i,j,:,iblk), trcrn=trcrn(i,j,:,:,iblk), &
-                        vicen=vicen(i,j,:,iblk), vsnon=vsnon(i,j,:,iblk), &
-                        aice0=aice0(i,j,iblk), aice=aice(i,j,iblk), &
-                        n_aero=n_aero, &
-                        nbtrcr=nbtrcr, nblyr=nblyr, &
-                        tr_aero=tr_aero, &
-                        tr_pond_topo=tr_pond_topo, heat_capacity=heat_capacity, &  
-                        first_ice=first_ice(i,j,:,iblk), &
-                        trcr_depend=trcr_depend(:), trcr_base=trcr_base(:,:), &
-                        n_trcr_strata=n_trcr_strata(:), nt_strata=nt_strata(:,:), &
-                        fpond=fpond(i,j,iblk), fresh=fresh(i,j,iblk), &
-                        fsalt=fsalt(i,j,iblk), fhocn=fhocn(i,j,iblk), &
-                        faero_ocn=faero_ocn(i,j,:,iblk), fzsal=fzsal(i,j,iblk), &
-                        flux_bio=flux_bio(i,j,1:nbtrcr,iblk))
-            enddo
-            enddo
+            call ice_HaloRestore_block(iblk, 1, nx_block,1, jlo-1, &
+                                  ilo,jlo,0,1)
          endif
       endif
 
@@ -804,52 +668,9 @@
                endif
                if (npad /= 0) ibc = ibc - 1
             enddo
-
-            do n = 1, ncat
-            do j = jhi, ibc
-            do i = 1, nx_block
-               aicen(i,j,n,iblk) = aicen(i,jhi,n,iblk) &
-                  + (aicen_rest(i,j,n,iblk)-aicen(i,jhi,n,iblk))*ctime
-               vicen(i,j,n,iblk) = vicen(i,jhi,n,iblk) &
-                  + (vicen_rest(i,j,n,iblk)-vicen(i,jhi,n,iblk))*ctime
-               vsnon(i,j,n,iblk) = vsnon(i,jhi,n,iblk) &
-                  + (vsnon_rest(i,j,n,iblk)-vsnon(i,jhi,n,iblk))*ctime
-               ! Also restore dynamic variables (in ice_state.F90), 
-               ! here to the neighbouring physical cell.
-               ! Consider _rest variables for these in future.
-               uvel(i,j,iblk) = uvel(i,jhi,iblk)
-               vvel(i,j,iblk) = vvel(i,jhi,iblk)
-               divu(i,j,iblk) = divu(i,jhi,iblk)
-               shear(i,j,iblk) = shear(i,jhi,iblk)
-               strength(i,j,iblk) = strength(i,jhi,iblk)
-               do nt = 1, ntrcr
-                  trcrn(i,j,nt,n,iblk) = trcrn(i,jhi,nt,n,iblk) &
-                     + (trcrn_rest(i,j,nt,n,iblk)-trcrn(i,jhi,nt,n,iblk))*ctime
-               enddo
-            enddo
-            enddo
-            enddo
-            do j=jhi,ibc
-            do i=1,nx_block
-              call cleanup_itd (dt=dt, ntrcr=ntrcr, &
-                        nilyr=nilyr, nslyr=nslyr, &
-                        ncat=ncat, hin_max=hin_max, &
-                        aicen=aicen(i,j,:,iblk), trcrn=trcrn(i,j,:,:,iblk), &
-                        vicen=vicen(i,j,:,iblk), vsnon=vsnon(i,j,:,iblk), &
-                        aice0=aice0(i,j,iblk), aice=aice(i,j,iblk), &
-                        n_aero=n_aero, &
-                        nbtrcr=nbtrcr, nblyr=nblyr, &
-                        tr_aero=tr_aero, &
-                        tr_pond_topo=tr_pond_topo, heat_capacity=heat_capacity, &  
-                        first_ice=first_ice(i,j,:,iblk), &
-                        trcr_depend=trcr_depend(:), trcr_base=trcr_base(:,:), &
-                        n_trcr_strata=n_trcr_strata(:), nt_strata=nt_strata(:,:), &
-                        fpond=fpond(i,j,iblk), fresh=fresh(i,j,iblk), &
-                        fsalt=fsalt(i,j,iblk), fhocn=fhocn(i,j,iblk), &
-                        faero_ocn=faero_ocn(i,j,:,iblk), fzsal=fzsal(i,j,iblk), &
-                        flux_bio=flux_bio(i,j,1:nbtrcr,iblk))
-            enddo
-            enddo
+            
+            call ice_HaloRestore_block(iblk, 1, nx_block,jhi+1, ibc, &
+                                  ilo,jhi,0,1)
          endif
       endif
 
@@ -864,6 +685,175 @@
    call ice_timer_stop(timer_bound)
 
  end subroutine ice_HaloRestore
+ 
+ subroutine ice_HaloRestore_block(iblk, imin,imax,jmin,jmax, &
+                                  iRef,jRef,iFixed,jFixed)
+
+  !including for cleanup_itd
+  use icepack_intfc, only: cleanup_itd
+  use ice_domain_size, only: ncat, nilyr, nslyr, n_aero, nblyr
+  use ice_arrays_column, only: hin_max, fzsal, first_ice
+  use ice_flux, only: fpond, fresh, fhocn, fsalt, Tf, Tair, salinz, Tmltz
+  use ice_flux_bgc, only: flux_bio, faero_ocn
+  use ice_state, only: aice, aice0, trcr_depend, n_trcr_strata, trcr_base, nt_strata
+  use ice_calendar, only: dt
+
+!-----------------------------------------------------------------------
+!
+!  Subroutine variables
+!
+!-----------------------------------------------------------------------
+
+  integer (kind=int_kind), intent(in) :: &
+         iblk, & ! block index
+         imin, imax, jmin, jmax, & ! physical domain indices
+         iRef, jRef, & !Like ilo,ihi,jlo,jhi
+         iFixed, jFixed !if looping left or right face of block, iFixed=1. Else 0
+  
+!-----------------------------------------------------------------------
+!
+!  local variables
+!
+!-----------------------------------------------------------------------
+
+   integer (kind=int_kind) :: &
+     i,j,nt,n,k,      &! dummy loop indices
+     ntrcr,              &! 
+     nt_Tsfc, nt_qice, nt_sice, nt_qsno, &
+     iPhys, jPhys
+
+   real (kind=dbl_kind) :: &
+     secday,             &!
+     puny, Tsfc, hbar, &
+     ctime                ! dt/trest
+   
+   !for cleanup_itd
+   logical (kind=log_kind) :: tr_aero, tr_pond, tr_pond_topo, heat_capacity
+   integer (kind=int_kind) :: nbtrcr
+   
+   real (kind=dbl_kind), dimension(nilyr) :: &
+         qin             ! ice enthalpy (J/m3)
+   real (kind=dbl_kind), dimension(nslyr) :: &
+         qsn             ! snow enthalpy (J/m3)
+   
+   character(len=*), parameter :: subname = '(ice_HaloRestore_block)'
+
+   call icepack_query_parameters(secday_out=secday, heat_capacity_out=heat_capacity, puny_out=puny)
+   call icepack_query_tracer_sizes(ntrcr_out=ntrcr, nbtrcr_out=nbtrcr)
+   call icepack_query_tracer_flags( &
+         tr_aero_out=tr_aero, tr_pond_out=tr_pond, tr_pond_topo_out=tr_pond_topo)
+   call icepack_query_tracer_indices(nt_Tsfc_out=nt_Tsfc, &
+           nt_qice_out=nt_qice, nt_sice_out=nt_sice,nt_qsno_out=nt_qsno)
+   call icepack_warnings_flush(nu_diag)
+   if (icepack_warnings_aborted()) call abort_ice(error_message=subname, &
+      file=__FILE__, line=__LINE__)
+
+  ! for now, use same restoring constant as for SST
+  if (trestore == 0) then
+     trest = dt          ! use data instantaneously
+  else
+     trest = real(trestore,kind=dbl_kind) * secday ! seconds
+     !trest = real(trestore,kind=dbl_kind) * secday*2 ! seconds. *2 since called 2x now in CICE_RunMod
+  endif
+  ctime = dt/trest
+      
+  do j = jmin,jmax
+  do i = imin,imax
+     !array(ilo,j) indexed as array(ilo*xFixed+i*(xFixed-1),jlo*yFixed+j*(yFixed-1))
+     ! so can use same code for 4 boundaries instead of copy/pasta
+     iPhys = iRef*iFixed+i*(1-iFixed)
+     jPhys = jRef*jFixed+j*(1-jFixed)
+     
+     !Set restoring values to prescribed + default/guess ---------------
+     !Update halo with physical domain
+     do nt = 1, ntrcr
+       do n = 1,ncat
+        trcrn_rest(i,j,nt,n,iblk) = trcrn(iPhys,jPhys,nt,n,iblk)
+       enddo
+     enddo
+     
+     ! Incorporate external information through "bry"
+     do n = 1, ncat
+       ! ice area, volume, snow volume
+       ! single input -> thickness categories?...closest, uniform, gaussian,...
+       ! ...scale neighbor if it has ice?
+       !TODO: what to do for FSD?
+       hbar = vice_bry(iPhys,jPhys,iblk)/aice_bry(iPhys,jPhys,iblk)
+       k = minloc(abs( hbar-hin_max ),DIM=1) ! w/o dim, returns array
+       if (hbar .GT. hin_max(k) ) k = k-1
+       if (k.EQ.n) then
+         aicen_rest(i,j,n,iblk) = aice_bry(iPhys,jPhys,iblk) !/ncat
+         vicen_rest(i,j,n,iblk) = vice_bry(iPhys,jPhys,iblk)
+         vsnon_rest(i,j,n,iblk) = vsno_bry(iPhys,jPhys,iblk)
+       else
+         aicen_rest(i,j,n,iblk) = 0.0_dbl_kind
+         vicen_rest(i,j,n,iblk) = 0.0_dbl_kind
+         vsnon_rest(i,j,n,iblk) = 0.0_dbl_kind
+       endif
+
+      call icepack_init_trcr(Tair=Tair(i,j,iblk),    Tf=Tf(i,j,iblk),  &
+                            Sprofile=salinz(i,j,:,iblk),         &
+                            Tprofile=Tmltz(i,j,:,iblk),          &
+                            Tsfc=Tsfc,                      &
+                            nilyr=nilyr,       nslyr=nslyr, &
+                            qin=qin(:),        qsn=qsn(:))
+
+      ! surface temperature
+      trcrn_rest(i,j,nt_Tsfc,n,iblk) = Tsfc ! deg C
+      ! ice enthalpy, salinity 
+      do k = 1, nilyr
+        trcrn_rest(i,j,nt_qice+k-1,n,iblk) = qin(k)
+        trcrn_rest(i,j,nt_sice+k-1,n,iblk) = salinz(i,j,k,iblk)
+      enddo
+      ! snow enthalpy
+      do k = 1, nslyr
+        trcrn_rest(i,j,nt_qsno+k-1,n,iblk) = qsn(k)
+      enddo               ! nslyr
+
+     !Relax to restore values ---------------
+     aicen(i,j,n,iblk) = aicen(iPhys,jPhys,n,iblk) &
+        + (aicen_rest(i,j,n,iblk)-aicen(iPhys,jPhys,n,iblk))*ctime
+     vicen(i,j,n,iblk) = vicen(iPhys,jPhys,n,iblk) &
+        + (vicen_rest(i,j,n,iblk)-vicen(iPhys,jPhys,n,iblk))*ctime
+     vsnon(i,j,n,iblk) = vsnon(iPhys,jPhys,n,iblk) &
+        + (vsnon_rest(i,j,n,iblk)-vsnon(iPhys,jPhys,n,iblk))*ctime
+     ! Also restore dynamic variables (in ice_state.F90), 
+     ! here to the neighbouring physical cell.
+     ! Consider _rest variables for these in future.
+     uvel(i,j,iblk) = uvel(iPhys,jPhys,iblk)
+     vvel(i,j,iblk) = vvel(iPhys,jPhys,iblk)
+     divu(i,j,iblk) = divu(iPhys,jPhys,iblk)
+     shear(i,j,iblk) = shear(iPhys,jPhys,iblk)
+     strength(i,j,iblk) = strength(iPhys,jPhys,iblk)
+     do nt = 1, ntrcr
+        trcrn(i,j,nt,n,iblk) = trcrn(iPhys,jPhys,nt,n,iblk) &
+           + (trcrn_rest(i,j,nt,n,iblk)-trcrn(iPhys,jPhys,nt,n,iblk))*ctime
+     enddo
+    enddo
+  enddo
+  enddo
+  do j=jmin,jmax
+  do i=imin,imax
+    call cleanup_itd (dt=dt, ntrcr=ntrcr, &
+              nilyr=nilyr, nslyr=nslyr, &
+              ncat=ncat, hin_max=hin_max, &
+              aicen=aicen(i,j,:,iblk), trcrn=trcrn(i,j,:,:,iblk), &
+              vicen=vicen(i,j,:,iblk), vsnon=vsnon(i,j,:,iblk), &
+              aice0=aice0(i,j,iblk), aice=aice(i,j,iblk), &
+              n_aero=n_aero, &
+              nbtrcr=nbtrcr, nblyr=nblyr, &
+              tr_aero=tr_aero, &
+              tr_pond_topo=tr_pond_topo, heat_capacity=heat_capacity, &  
+              first_ice=first_ice(i,j,:,iblk), &
+              trcr_depend=trcr_depend(:), trcr_base=trcr_base(:,:), &
+              n_trcr_strata=n_trcr_strata(:), nt_strata=nt_strata(:,:), &
+              fpond=fpond(i,j,iblk), fresh=fresh(i,j,iblk), &
+              fsalt=fsalt(i,j,iblk), fhocn=fhocn(i,j,iblk), &
+              faero_ocn=faero_ocn(i,j,:,iblk), fzsal=fzsal(i,j,iblk), &
+              flux_bio=flux_bio(i,j,1:nbtrcr,iblk))
+  enddo
+  enddo
+ end subroutine ice_HaloRestore_block
 
 !=======================================================================
 
