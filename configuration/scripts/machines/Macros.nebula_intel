@@ -2,7 +2,7 @@
 # Makefile macros for generic test machine, intel compiler
 #==============================================================================
 
-CPP        := fpp
+CPP        := mpicc
 CPPDEFS    := -DFORTRANUNDERSCORE -DNO_R16 -DHAVE_F2008_CONTIGUOUS -DLINUX -DCPRINTEL ${ICE_CPPDEFS}
 CFLAGS     := -c -O2 -fp-model precise   -xHost
 
@@ -43,9 +43,11 @@ LIB_MPI := $(IMPILIBDIR)
 
 SLIBS   := -L$(LIB_NETCDF) -lnetcdf -lnetcdff -L$(LIB_PNETCDF) -lpnetcdf
 
-SCC:= icc 
+#SCC:= icc 
+SCC:=mpicc
 
-SFC:= ifort 
+#SFC:= ifort
+SFC:=mpif90
 
 # ifeq ($(compile_threaded), true) #needed for oasis-mct
 LDFLAGS += -qopenmp 
@@ -72,6 +74,10 @@ endif
 
 #With OASIS-MCT
 #TODO: ./configuration/scripts/options/set_env.oasismct
-INCLDIR += -I/home/sm_nicsz/oasis3-mct/nebula_oa3-mct_openmp/build/lib/psmile.MPI1
-SLIBS   := $(SLIBS) -L/home/sm_nicsz/oasis3-mct/nebula_oa3-mct_openmp/lib/ -lpsmile.MPI1 -lmct -lmpeu -lscrip
+#INCLDIR += -I/home/sm_nicsz/oasis3-mct/nebula_oa3-mct_openmp/build/lib/psmile.MPI1
+#SLIBS   := $(SLIBS) -L/home/sm_nicsz/oasis3-mct/nebula_oa3-mct_openmp/lib/ -lpsmile.MPI1 -lmct -lmpeu -lscrip
+#OASIS_PATH:=/home/sm_nicsz/oasis3-mct/nebula_oa3-mct_openmp/
+OASIS_PATH:=/home/sm_erith/oasis3-mct/Nebula_oasis3/
+INCLDIR += -I$(OASIS_PATH)/build/lib/psmile.MPI1
+SLIBS   := $(SLIBS) -L$(OASIS_PATH)/lib/ -lpsmile.MPI1 -lmct -lmpeu -lscrip
 
