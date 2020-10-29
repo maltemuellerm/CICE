@@ -45,6 +45,7 @@ SLIBS   := -L$(LIB_NETCDF) -lnetcdf -lnetcdff -L$(LIB_PNETCDF) -lpnetcdf
 
 #SCC:= icc 
 SCC:=mpicc
+CC:=mpicc
 
 #SFC:= ifort
 SFC:=mpif90
