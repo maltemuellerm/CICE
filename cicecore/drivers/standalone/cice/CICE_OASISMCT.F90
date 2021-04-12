@@ -19,7 +19,7 @@ module CICE_OASISMCT
                       swvdr, swvdf, swidr, swidf, flw, &
                       fsw, fswabs, fswthru, alvdf, &
                       sst, strax, stray, frain, fsnow, &
-                      strwavex, strwavey, zBreak, lBreak
+                      strwavex, strwavey, whs, wfp 
   use ice_forcing, only: sst_topaz, sss_topaz, uocn_topaz, vocn_topaz, hmix_topaz, qdp_topaz
   use ice_restoring, only: aice_bry, vice_bry, vsno_bry
   use ice_arrays_column, only: floe_rad_c
@@ -46,11 +46,11 @@ module CICE_OASISMCT
   !integer, parameter :: nVars_in=0, nVars_out=5
   !CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) =  [character(len=20)::"aice","hi","uvel","vvel","tsfc"]
   !CHARACTER(len=20) :: varsIn_names(nVars_in) ! Names of exchanged Fields
-  integer, parameter :: nVars_in=27, nVars_out=8
-  CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) = [character(len=20)::"aice","alb","uvel","vvel","tice","sst","hi","floeDiam"]
+  integer, parameter :: nVars_in=27, nVars_out=7
+  CHARACTER(len=20), parameter  :: varsOut_names(nVars_out) = [character(len=20)::"aice","alb","uvel","vvel","tice","sst","hi"]
   CHARACTER(len=20), parameter  :: varsIn_names(nVars_in) = [character(len=20)::"Tair","strau","strav","Pair","rhoa","qair", &
                                      "swdvdr","swdvdf","swdidr","swdidf","lwd","frain","fsnow","wind", &
-                                     "strwaveu","strwavev","zBreak","lBreak", &
+                                     "strwaveu","strwavev","whs","wfp", &
                                      "sst_ext","sss_ext","uocn_ext","vocn_ext","hmix_ext","qdp_ext", &
                                      "aice_bry", "vice_bry", "vsno_bry"]
   
@@ -526,43 +526,43 @@ module CICE_OASISMCT
           WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
         endif
         
-        wrk_horiz(:,:) = 0.0
-        n=0
-        do iblk = 1, nblocks
-          this_block = get_block(blocks_ice(iblk),iblk)         
-          ilo = this_block%ilo
-          ihi = this_block%ihi
-          jlo = this_block%jlo
-          jhi = this_block%jhi
-          
-          do j = jlo, jhi
-          do i = ilo, ihi
-              n = n+1
-              wrk_horiz(n,1) = 300.0_dbl_kind !Default diameter...if aice<puny or .not.tr_fsd
-              if (tr_fsd) then
-                if (aice(i,j,iblk) .GT. puny) then
-                  !Maximum floe size category
-                  do k = nfsd,1,-1
-                    uTemp = SUM(trcrn(i,j,nt_fsd+k-1,:,iblk)*aicen(i,j,:,iblk)) !concentration in this floe bin
-                    if (uTemp.GT.puny) EXIT
-                    !
-                  enddo !nfsd
-                  wrk_horiz(n,1) = 2*floe_rad_c(k)
-                endif !aice
-              endif !tr_fsd
-          enddo    !i
-          enddo    !j
-        enddo       !iblk
-        !
-        i = 8
-        CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
-        IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
-          WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
-          CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
-        ENDIF
-        if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
-          WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
-        endif
+ !       wrk_horiz(:,:) = 0.0
+ !       n=0
+ !       do iblk = 1, nblocks
+ !         this_block = get_block(blocks_ice(iblk),iblk)         
+ !         ilo = this_block%ilo
+ !         ihi = this_block%ihi
+ !         jlo = this_block%jlo
+ !         jhi = this_block%jhi
+ !         
+ !         do j = jlo, jhi
+ !         do i = ilo, ihi
+ !             n = n+1
+ !             wrk_horiz(n,1) = 300.0_dbl_kind !Default diameter...if aice<puny or .not.tr_fsd
+ !             if (tr_fsd) then
+ !               if (aice(i,j,iblk) .GT. puny) then
+ !                 !Maximum floe size category
+ !                 do k = nfsd,1,-1
+ !                   uTemp = SUM(trcrn(i,j,nt_fsd+k-1,:,iblk)*aicen(i,j,:,iblk)) !concentration in this floe bin
+ !                   if (uTemp.GT.puny) EXIT
+ !                   !
+ !                 enddo !nfsd
+ !                 wrk_horiz(n,1) = 2*floe_rad_c(k)
+ !               endif !aice
+ !             endif !tr_fsd
+ !         enddo    !i
+ !         enddo    !j
+ !       enddo       !iblk
+ !       !
+ !       i = 8
+ !       CALL oasis_put(varsOut_ids(i),timeCouple, wrk_horiz, oas_ierror)
+ !       IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Sent)) THEN
+ !         WRITE (nu_diag,*) 'oasis_put abort by ', oas_comp_name, ' compid ',comp_id, ' info: ', oas_ierror
+ !         CALL oasis_abort(comp_id,oas_comp_name,'Problem w oasis put')
+ !       ENDIF
+ !       if ((oas_ierror.EQ.OASIS_Sent).OR.(oas_ierror.EQ.OASIS_Output)) THEN
+ !         WRITE (nu_diag,*) 'oasis_put ', trim(varsOut_names(i)), comp_id, localComm, minval(wrk_horiz), maxval(wrk_horiz)
+ !       endif
         
         deallocate(wrk_horiz)
       end subroutine ice_oasismct_send
@@ -1002,7 +1002,7 @@ module CICE_OASISMCT
           enddo       !iblk
         endif
         
-        !wave info: "strwaveu","strwavev",zBreak, lBreak
+        !wave info: "strwaveu","strwavev",whs, wfp 
         i = 15
         CALL oasis_get(varsIn_ids(i), timeCouple, wrk_horiz, oas_ierror)
         IF ((oas_ierror .NE. OASIS_Ok) .AND. (oas_ierror .LT. OASIS_Recvd)) THEN
@@ -1094,7 +1094,7 @@ module CICE_OASISMCT
             do j = jlo, jhi
             do i = ilo, ihi
                 n = n+1
-                zBreak(i,j,iblk) = wrk_horiz(n,1)
+                whs(i,j,iblk) = wrk_horiz(n,1)
             enddo    !i
             enddo    !j
           enddo       !iblk
@@ -1121,7 +1121,7 @@ module CICE_OASISMCT
             do j = jlo, jhi
             do i = ilo, ihi
                 n = n+1
-                lBreak(i,j,iblk) = wrk_horiz(n,1)
+                wfp(i,j,iblk) = wrk_horiz(n,1)
             enddo    !i
             enddo    !j
           enddo       !iblk

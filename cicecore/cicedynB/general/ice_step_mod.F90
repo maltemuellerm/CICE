@@ -21,7 +21,7 @@
       use icepack_intfc, only: icepack_step_therm2
       use icepack_intfc, only: icepack_aggregate
       use icepack_intfc, only: icepack_step_ridge
-      use icepack_intfc, only: icepack_step_wavefracture, ww3Boutin_step_wavefracture
+      use icepack_intfc, only: icepack_step_wavefracture, icepack_step_bretschneider_wavefracture
       use icepack_intfc, only: icepack_step_radiation
       use icepack_intfc, only: icepack_ocn_mixed_layer, icepack_atm_boundary
       use icepack_intfc, only: icepack_biogeochemistry, icepack_load_ocean_bio_array
@@ -690,12 +690,12 @@
       subroutine step_dyn_wave (dt)
 
       use ice_arrays_column, only: wave_spectrum, wave_sig_ht, &
-          d_afsd_wave, floe_rad_l, floe_rad_c, wavefreq, dwavefreq
+          d_afsd_wave, floe_rad_l, floe_rad_c, floe_binwidth, wavefreq, dwavefreq
       use ice_blocks, only: block, get_block
       use ice_domain, only: blocks_ice, nblocks
       use ice_domain_size, only: ncat, nfsd, nfreq
       use ice_state, only: trcrn, aicen, vicen, aice, vice
-      use ice_flux, only: zBreak, lBreak
+      use ice_flux, only: whs, wfp 
       use ice_timers, only: ice_timer_start, ice_timer_stop, timer_column, &
           timer_fsd
 
@@ -750,12 +750,24 @@
                                             trcrn          (i,j,:,:,iblk), &
                                             d_afsd_wave    (i,j,:,  iblk))
             ELSE
-            call ww3Boutin_step_wavefracture( &
-                  dt, ncat, nfsd,      &
-                  aice(i,j,iblk), aicen(i,j,:,  iblk), vicen(i,j,:,  iblk),     &
-                  floe_rad_l(:),    floe_rad_c(:),                 &
-                  zBreak(i,j,iblk), lBreak(i,j,iblk),                     &
-                  trcrn(i,j,:,:,iblk), d_afsd_wave(i,j,:,  iblk))
+            call icepack_step_bretschneider_wavefracture (wave_spec_type, &
+                                            dt, ncat, nfsd, nfreq,         &
+                                            aice           (i,j,    iblk), &
+                                            vice           (i,j,    iblk), &
+                                            aicen          (i,j,:,  iblk), &
+                                            floe_rad_l(:), floe_rad_c(:),  &
+                                            floe_binwidth(:),              &
+                                            wavefreq(:),   dwavefreq(:),   &
+                                            whs            (i,j,    iblk), &
+                                            wfp            (i,j,    iblk), &
+                                            trcrn          (i,j,:,:,iblk), &
+                                            d_afsd_wave    (i,j,:,  iblk))
+!            call ww3Boutin_step_wavefracture( &
+!                  dt, ncat, nfsd,      &
+!                  aice(i,j,iblk), aicen(i,j,:,  iblk), vicen(i,j,:,  iblk),     &
+!                  floe_rad_l(:),    floe_rad_c(:),                 &
+!                  (i,j,iblk), (i,j,iblk),                     &
+!                  trcrn(i,j,:,:,iblk), d_afsd_wave(i,j,:,  iblk))
             ENDIF
          end do ! i
          end do ! j

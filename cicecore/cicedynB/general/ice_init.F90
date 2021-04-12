@@ -349,7 +349,7 @@
                                   ! 'mm_per_sec' = 'mks' = kg/m^2 s
       tfrz_option     = 'mushy'   ! freezing temp formulation
       oceanmixed_ice  = .false.   ! if true, use internal ocean mixed layer
-      wave_spec_type  = 'none'    ! type of wave spectrum forcing
+      wave_spec_type  = 'random'    ! type of wave spectrum forcing
       nfreq           = 25        ! number of wave frequencies
       wave_spec_file  = ' '       ! wave forcing file name
       ocn_data_format = 'bin'     ! file format ('bin'=binary or 'nc'=netcdf)

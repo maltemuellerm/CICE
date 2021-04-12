@@ -5231,6 +5231,7 @@
 
       ! if no wave data is provided, wave_spectrum is zero everywhere
       wave_spectrum(:,:,:,:) = c0
+      write (nu_diag,*) "WaveSpec initialized no. of freq: ",nfreq
       wave_spec_dir = ocn_data_dir
       dbug = .false.
 

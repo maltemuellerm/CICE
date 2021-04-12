@@ -46,8 +46,8 @@
        ! in from wave  
          strwavex   , & ! wave-on-ice stress, x-direction (N/m^2)
          strwavey   , & ! wave-on-ice stress, y-direction (N/m^2)
-         zBreak     , & ! wave flexure amplitude (UNITS TODO)
-         lBreak     , & ! wave flexure wavelength (m)
+         whs      , & ! wave sgnificant wave height (m)
+         wfp      , & ! wave peak frequency (1/s)
        
        ! in from ocean
          uocn    , & ! ocean current, x-direction (m/s)
@@ -348,8 +348,8 @@
          stray      (nx_block,ny_block,max_blocks), & ! 
          strwavex      (nx_block,ny_block,max_blocks), & ! 
          strwavey      (nx_block,ny_block,max_blocks), & ! 
-         zBreak      (nx_block,ny_block,max_blocks), & ! 
-         lBreak      (nx_block,ny_block,max_blocks), & ! 
+         whs        (nx_block,ny_block,max_blocks), & ! 
+         wfp        (nx_block,ny_block,max_blocks), & ! 
          uocn       (nx_block,ny_block,max_blocks), & ! ocean current, x-direction (m/s)
          vocn       (nx_block,ny_block,max_blocks), & ! ocean current, y-direction (m/s)
          ss_tltx    (nx_block,ny_block,max_blocks), & ! sea surface slope, x-direction (m/m)
@@ -638,8 +638,8 @@
 
       strwavex(:,:,:)= c0              !
       strwavey(:,:,:)= c0              !
-      zBreak(:,:,:)= c0              !
-      lBreak(:,:,:)= 100.0_dbl_kind              ! 
+      whs(:,:,:)= c0              !
+      wfp(:,:,:)= 0.6_dbl_kind    !  2i*pi / 6sec
       
       !-----------------------------------------------------------------
       ! fluxes received from ocean
