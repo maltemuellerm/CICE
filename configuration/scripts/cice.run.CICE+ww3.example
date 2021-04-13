@@ -1,0 +1,120 @@
+#!/bin/csh -f 
+#SBATCH -J 01_exp
+#SBATCH -t 04:15:00
+####SBATCH -N 1
+#SBATCH -n 144
+
+#--------------------------------------------
+
+cd /home/sm_malmu/CICE_fsd/01_exp
+source ./cice.settings || exit 2
+source ./env.${ICE_MACHCOMP} || exit 2
+
+echo " "
+echo "${0}:"
+
+set  stamp   = `date '+%y%m%d-%H%M%S'`
+set ICE_RUNLOG_FILE = "cice.runlog.${stamp}"
+
+#--------------------------------------------
+# This can be reused after testing (cylcinhg)
+# see also commented lines in the end
+#--------------------------------------------
+ # Prepare date of simulation
+ set dd=`cat datecontrol.in`
+ echo 'Initialization date: '$dd[1]
+ echo 'End of simulation  : '$dd[2]
+ echo 'Date of simulation : '$dd[3]
+ set ddnew=`date -I -d "$dd[3] + 1 day"`
+ # Preprocess files for run
+ cd run_manager
+ cp run_preprocess_cycling.py run_preprocess_cycling_tmp.py
+ sed -i "s/YYYYMMDD1/`date -d $dd[3] '+%Y,%-m,%-d'`/g" run_preprocess_cycling_tmp.py
+ sed -i "s/YYYYMMDD2/`date -d $ddnew '+%Y,%-m,%-d'`/g" run_preprocess_cycling_tmp.py
+ python run_preprocess_cycling_tmp.py
+ cd ..
+#--------------------------------------------
+
+#--------------------------------------------
+
+./setup_run_dirs.csh
+
+#--------------------------------------------
+cd ${ICE_RUNDIR}
+
+setenv OMP_NUM_THREADS 1
+
+#cp -f ${ICE_CASEDIR}/ice_in ${ICE_RUNDIR}
+set diagtype = `grep -i diag_type ${ICE_CASEDIR}/ice_in | grep -i stdout | wc -l`
+set diagfile = `grep -i diag_file ${ICE_CASEDIR}/ice_in | sed -e "s/.* = '\(.*\)'/\1/"`
+
+echo " "
+echo "CICE case directory is ${ICE_CASEDIR}"
+echo "CICE rundir is ${ICE_RUNDIR}"
+echo "CICE log file is ${ICE_RUNLOG_FILE}"
+echo "CICE run started : `date`"
+
+#mpprun ./cice >&! $ICE_RUNLOG_FILE
+mpprun -np 96 ./ww3_shel : -np 48 ./cice >&! $ICE_RUNLOG_FILE
+#=======
+#else if (nebula =~ cca*) then
+#cat >> cice.run << EOFR
+#aprun -n 32 -d 1 ./cice >&! $ICE_RUNLOG_FILE
+#echo "CICE run finished: `date`"
+#echo " "
+
+#--------------------------------------------
+
+if !(-d ${ICE_LOGDIR}) mkdir -p ${ICE_LOGDIR}
+
+set checkfile = ${ICE_RUNLOG_FILE}
+cp -p ${ICE_RUNLOG_FILE} ${ICE_LOGDIR}
+echo "CICE output file is ${ICE_LOGDIR}/${ICE_RUNLOG_FILE}"
+echo "`date` ${0}: CICE output file is ${ICE_LOGDIR}/${ICE_RUNLOG_FILE}" >> ${ICE_CASEDIR}/README.case
+
+if ( ${diagtype} == 0) then
+  set checkfile = ${diagfile}
+  cp -p ${diagfile} ${ICE_LOGDIR}
+  echo "CICE output file is ${ICE_LOGDIR}/${diagfile}"
+  echo "`date` ${0}: CICE output file is ${ICE_LOGDIR}/${diagfile}" >> ${ICE_CASEDIR}/README.case
+endif
+
+grep ' CICE COMPLETED SUCCESSFULLY' ${checkfile}
+if ( $status == 0 ) then
+  echo "CICE run completed successfully"
+  echo "`date` ${0}: CICE run completed successfully"  >> ${ICE_CASEDIR}/README.case
+  #--------------------------------------------
+  echo "starting ww3 postprocessing"
+  mkdir -p ${ICE_RUNDIR}/ww3tmp  
+  mv ${ICE_RUNDIR}/out_grd.ww3  ${ICE_RUNDIR}/ww3tmp/
+  cp ${ICE_RUNDIR}/ww3_ounf.inp ${ICE_RUNDIR}/ww3tmp/
+  ln -sf /home/sm_erith/WW3/exe/ww3_ounf ${ICE_RUNDIR}/ww3tmp/ww3_ounf
+  cd ${ICE_CASEDIR}
+  sbatch run_ww3_ounf    
+else
+  echo "CICE run did NOT complete"
+  echo "`date` ${0}: CICE run did NOT complete"  >> ${ICE_CASEDIR}/README.case
+  exit -1
+endif
+
+if ( ${diagtype} == 0) then
+  exit -1
+endif
+
+
+##! # Prepare for resubmission
+ sed -i "3s/.*/`echo ${ddnew}`/" datecontrol.in
+ 
+ set todate=`date -d $dd[3] +%s`
+ set cond=`date -d $dd[2] +%s`
+ 
+ if ($todate < $cond) then
+    echo " ---  SUBMIT MODELs FOR NEXT DATE --- "
+    ./cice.submit
+ else 
+    echo " ---  MODEL RUN FINISHED"
+ endif
+ 
+
+echo "done ${0}"
+
